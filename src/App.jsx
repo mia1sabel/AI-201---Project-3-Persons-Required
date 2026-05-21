@@ -1,6 +1,20 @@
 import React, { useState, useEffect } from 'react';
 import './App.css';
 
+// Firebase Imports
+import { auth, db } from './firebase';
+import { 
+  signInWithEmailAndPassword, 
+  createUserWithEmailAndPassword, 
+  signOut, 
+  onAuthStateChanged 
+} from 'firebase/auth';
+import { 
+  doc, 
+  setDoc, 
+  onSnapshot 
+} from 'firebase/firestore';
+
 const initialRoster = [
   { name: "Kurobane", tier: "Low-tier", fee: 150, status: "Draft Contract", notes: "Personal Friend, low budget opening slot", pull: 15, duration: 30 },
   { name: "Akhsosa", tier: "Low-tier", fee: 350, status: "Inquiry", notes: "Early afternoon day slot", pull: 20, duration: 30 },
@@ -21,48 +35,144 @@ const initialRoster = [
 ];
 
 export default function App() {
-  const [activeRoster, setActiveRoster] = useState(() => {
-    const saved = localStorage.getItem('crosswireActive');
-    return saved ? JSON.parse(saved) : [];
-  });
-  const [bench, setBench] = useState(() => {
-    const saved = localStorage.getItem('crosswireBench');
-    return saved ? JSON.parse(saved) : initialRoster;
-  });
-  
-  const [selectedArtistName, setSelectedArtistName] = useState(() => {
-    const savedActive = localStorage.getItem('crosswireActive');
-    const savedBench = localStorage.getItem('crosswireBench');
-    const parsedActive = savedActive ? JSON.parse(savedActive) : [];
-    const parsedBench = savedBench ? JSON.parse(savedBench) : initialRoster;
-    return parsedActive[0]?.name || parsedBench[0]?.name || '';
-  });
+  // --- FIREBASE ACCOUNT STATE ---
+  const [user, setUser] = useState(null);
+  const [authEmail, setAuthEmail] = useState('');
+  const [authPassword, setAuthPassword] = useState('');
+  const [isSignUp, setIsSignUp] = useState(false);
+  const [showAuthModal, setShowAuthModal] = useState(false);
 
+  // --- MULTI-LINEUP WORKSPACE MANAGERS ---
+  const [lineups, setLineups] = useState([
+    { id: '1', name: "Main Stage Draft", activeRoster: [], bench: initialRoster }
+  ]);
+  const [currentLineupId, setCurrentLineupId] = useState('1');
+
+  // --- CORE APP METRICS ---
+  const [ticketCap, setTicketCap] = useState(1150);
+  const [artistBudget, setArtistBudget] = useState(18000);
+  const [startTimeStr, setStartTimeStr] = useState("15:00");
+
+  const TICKET_PRICE = 40; 
+  const BRAND_RED = '#FF0033';
+
+  // --- UI LOCAL STATES ---
+  const [selectedArtistName, setSelectedArtistName] = useState('');
   const [isEditing, setIsEditing] = useState(false);
   const [draggedItem, setDraggedItem] = useState(null);
   const [dragOverItem, setDragOverItem] = useState(null);
   const [showAddModal, setShowAddModal] = useState(false);
-  
+  const [newLineupName, setNewLineupName] = useState('');
   const [newArtist, setNewArtist] = useState({
     name: '', tier: 'Low-tier', fee: '', status: 'Inquiry', notes: '', pull: '', duration: 30
   });
 
-  useEffect(() => {
-    localStorage.setItem('crosswireActive', JSON.stringify(activeRoster));
-    localStorage.setItem('crosswireBench', JSON.stringify(bench));
-  }, [activeRoster, bench]);
-
-  const TOTAL_BUDGET = 18000;
-  const CAPACITY = 1150;
-  const TICKET_PRICE = 40; 
-  const BRAND_RED = '#FF0033';
-
+  // Safe Multi-Workspace Active References
+  const activeLineup = lineups.find(l => l.id === currentLineupId) || lineups[0];
+  const { activeRoster, bench } = activeLineup;
   const allArtists = [...activeRoster, ...bench];
   const selectedArtist = allArtists.find(a => a.name === selectedArtistName) || allArtists[0];
   const currentSpend = activeRoster.reduce((sum, artist) => sum + artist.fee, 0);
   const currentPull = activeRoster.reduce((sum, artist) => sum + artist.pull, 0);
 
-  // Director's Updates: Start 1 hour late (3:00 PM) + add 15 min break between acts
+  // 1. Listen for Real-time Auth Changes
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+      if (!currentUser) {
+        const saved = localStorage.getItem('crosswire_cloud_lineups');
+        if (saved) setLineups(JSON.parse(saved));
+      }
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // 2. Real-Time Cloud Subscription via Firestore
+  useEffect(() => {
+    if (!user) return;
+
+    const docRef = doc(db, "users", user.uid);
+    const unsubscribe = onSnapshot(docRef, (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        if (data.lineups) setLineups(data.lineups);
+        if (data.ticketCap) setTicketCap(data.ticketCap);
+        if (data.artistBudget) setArtistBudget(data.artistBudget);
+        if (data.startTimeStr) setStartTimeStr(data.startTimeStr);
+      } else {
+        setDoc(docRef, {
+          lineups,
+          ticketCap,
+          artistBudget,
+          startTimeStr
+        });
+      }
+    });
+
+    return () => unsubscribe();
+  }, [user]);
+
+  // 3. Fallback Local Storage Backup
+  useEffect(() => {
+    if (!user) {
+      localStorage.setItem('crosswire_cloud_lineups', JSON.stringify(lineups));
+    }
+  }, [lineups, user]);
+
+  // Global Workspace Sync Engine
+  const saveWorkspaceData = async (updatedLineups, optCap, optBudget, optTime) => {
+    const nextLineups = updatedLineups || lineups;
+    const nextCap = optCap !== undefined ? optCap : ticketCap;
+    const nextBudget = optBudget !== undefined ? optBudget : artistBudget;
+    const nextTime = optTime !== undefined ? optTime : startTimeStr;
+
+    setLineups(nextLineups);
+    if (optCap !== undefined) setTicketCap(optCap);
+    if (optBudget !== undefined) setArtistBudget(optBudget);
+    if (optTime !== undefined) setStartTimeStr(optTime);
+
+    if (user) {
+      try {
+        await setDoc(doc(db, "users", user.uid), {
+          lineups: nextLineups,
+          ticketCap: nextCap,
+          artistBudget: nextBudget,
+          startTimeStr: nextTime
+        }, { merge: true });
+      } catch (err) {
+        console.error("Firestore Update Protection Intercept: ", err);
+      }
+    }
+  };
+
+  const updateCurrentLineupData = (newActive, newBench) => {
+    const updated = lineups.map(l => l.id === currentLineupId ? { ...l, activeRoster: newActive, bench: newBench } : l);
+    saveWorkspaceData(updated);
+  };
+
+  // Auth Submit Routing
+  const handleAuthSubmit = async (e) => {
+    e.preventDefault();
+    try {
+      if (isSignUp) {
+        await createUserWithEmailAndPassword(auth, authEmail, authPassword);
+      } else {
+        await signInWithEmailAndPassword(auth, authEmail, authPassword);
+      }
+      setShowAuthModal(false);
+      setAuthEmail('');
+      setAuthPassword('');
+    } catch (err) {
+      alert(err.message);
+    }
+  };
+
+  const handleLogout = () => {
+    signOut(auth);
+    setCurrentLineupId('1');
+  };
+
+  // Your Director's Dynamic Time Calculator Engine
   const getDynamicTime = (index) => {
     let totalMinutes = 0;
     for (let i = 0; i < index; i++) {
@@ -70,12 +180,14 @@ export default function App() {
         const breakTime = 15;
         totalMinutes += (setDuration + breakTime);
     }
+    const [hours, minutes] = startTimeStr.split(':').map(Number);
     const startTime = new Date();
-    startTime.setHours(15, 0, 0, 0); // Pushed from 2:00 PM to 3:00 PM (giving an hour buffer before music starts)
+    startTime.setHours(hours, minutes, 0, 0); 
     startTime.setMinutes(startTime.getMinutes() + totalMinutes);
     return startTime.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true });
   };
 
+  // Drag and Drop Controllers
   const handleDragStart = (e, sourceList, index) => {
     setDraggedItem({ list: sourceList, index });
     e.dataTransfer.setData('sourceList', sourceList);
@@ -144,13 +256,22 @@ export default function App() {
       if (sourceIndex < targetIndex) finalTargetIndex--;
       finalTargetIndex = Math.max(0, Math.min(finalTargetIndex, sourceArray.length));
       sourceArray.splice(finalTargetIndex, 0, movedItem);
-      sourceList === 'active' ? setActiveRoster(sourceArray) : setBench(sourceArray);
+      sourceList === 'active' ? updateCurrentLineupData(sourceArray, bench) : updateCurrentLineupData(activeRoster, sourceArray);
     } else {
       let finalTargetIndex = Math.max(0, Math.min(targetIndex, targetArray.length));
       targetArray.splice(finalTargetIndex, 0, movedItem);
-      sourceList === 'active' ? setActiveRoster(sourceArray) : setBench(sourceArray);
-      targetList === 'active' ? setActiveRoster(targetArray) : setBench(targetArray);
+      sourceList === 'active' ? updateCurrentLineupData(sourceArray, targetArray) : updateCurrentLineupData(targetArray, sourceArray);
     }
+  };
+
+  const handleCreateLineup = (e) => {
+    e.preventDefault();
+    if (!newLineupName.trim()) return;
+    const newId = Date.now().toString();
+    const created = { id: newId, name: newLineupName.trim(), activeRoster: [], bench: initialRoster };
+    saveWorkspaceData([...lineups, created]);
+    setCurrentLineupId(newId);
+    setNewLineupName('');
   };
 
   const handleAddArtist = (e) => {
@@ -162,7 +283,7 @@ export default function App() {
       pull: Number(newArtist.pull) || 0,
       duration: Number(newArtist.duration) || 30
     };
-    setBench([created, ...bench]);
+    updateCurrentLineupData(activeRoster, [created, ...bench]);
     setSelectedArtistName(created.name);
     setNewArtist({ name: '', tier: 'Low-tier', fee: '', status: 'Inquiry', notes: '', pull: '', duration: 30 });
     setShowAddModal(false);
@@ -178,8 +299,7 @@ export default function App() {
     const filteredActive = activeRoster.filter(a => a.name !== name);
     const filteredBench = bench.filter(a => a.name !== name);
     
-    setActiveRoster(filteredActive);
-    setBench(filteredBench);
+    updateCurrentLineupData(filteredActive, filteredBench);
 
     if (selectedArtistName === name) {
       const remaining = [...filteredActive, ...filteredBench];
@@ -201,9 +321,9 @@ export default function App() {
     };
 
     if (activeRoster.some(a => a.name === updatedArtist.name)) {
-      setActiveRoster(activeRoster.map(a => a.name === updatedArtist.name ? updatedArtist : a));
+      updateCurrentLineupData(activeRoster.map(a => a.name === updatedArtist.name ? updatedArtist : a), bench);
     } else {
-      setBench(bench.map(a => a.name === updatedArtist.name ? updatedArtist : a));
+      updateCurrentLineupData(activeRoster, bench.map(a => a.name === updatedArtist.name ? updatedArtist : a));
     }
     setIsEditing(false);
   };
@@ -264,32 +384,87 @@ export default function App() {
 
   return (
     <div className="app-container">
+      {/* BRAND INTERFACE HEADER */}
       <header className="header">
         <div className="brand-wrapper">
           <h1 className="brand-title">LineupIQ<span className="brand-dot">.</span></h1>
           <span className="brand-version">v2.0</span>
         </div>
-        <button type="button" onClick={() => setShowAddModal(true)} className="btn-square-outline">
-          + Add Artist
-        </button>
+        
+        <div className="header-controls" style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+          {/* Workspace Switcher */}
+          <div className="lineup-selector-wrapper" style={{ display: 'flex', alignItems: 'center', gap: '8px', border: '2px solid #000', padding: '4px 12px', background: '#fff' }}>
+            <span className="stat-label" style={{ margin: 0, fontSize: '0.75rem' }}>Workspace:</span>
+            <select value={currentLineupId} onChange={e => { setCurrentLineupId(e.target.value); setSelectedArtistName(''); }} style={{ border: 'none', fontWeight: '900', textTransform: 'uppercase', outline: 'none', cursor: 'pointer' }}>
+              {lineups.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+            </select>
+          </div>
+
+          {/* Create Layout Sub-Form */}
+          <form onSubmit={handleCreateLineup} style={{ display: 'flex', gap: '4px' }}>
+            <input required type="text" placeholder="Layout Title..." value={newLineupName} onChange={e => setNewLineupName(e.target.value)} className="input-premium-brutalist" style={{ padding: '6px 10px', fontSize: '0.75rem' }} />
+            <button type="submit" className="btn-square-outline" style={{ padding: '6px 12px' }}>Save New</button>
+          </form>
+
+          <button type="button" onClick={() => setShowAddModal(true)} className="btn-square-outline" style={{ background: '#000', color: '#fff' }}>
+            + Add Artist
+          </button>
+
+          <button type="button" onClick={() => user ? handleLogout() : setShowAuthModal(true)} className="btn-square-outline" style={{ borderColor: BRAND_RED, color: BRAND_RED, fontWeight: 'bold' }}>
+            {user ? `Sign Out (${user.email})` : 'Sync Device'}
+          </button>
+        </div>
       </header>
 
-      <div className="continuous-metrics-strip">
+      {/* DYNAMIC ADJUSTABLE CONTINUOUS STRIP */}
+      <div className="continuous-metrics-strip" style={{ padding: '6px 16px' }}>
         <div className="metric-strip-cell">
           <div className="stat-label">Ticket Cap</div>
-          <div className="stat-value" style={{ color: currentPull > CAPACITY ? BRAND_RED : 'var(--text-primary)' }}>
-            {currentPull.toLocaleString()} / {CAPACITY.toLocaleString()}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <input type="number" value={ticketCap} onChange={e => saveWorkspaceData(null, Number(e.target.value), undefined, undefined)} className="clean-inline-input text-mono" style={{ color: currentPull > ticketCap ? BRAND_RED : 'var(--text-primary)', width: '90px', fontValues: 'inherit', fontWeight: '900', fontSize: '1.4rem', border: 'none', background: 'transparent' }} />
+            <span className="inline-progress-subtext" style={{ fontSize: '0.8rem', opacity: 0.6 }}>({currentPull.toLocaleString()} SOLD)</span>
           </div>
         </div>
         <div className="metric-strip-divider" />
         <div className="metric-strip-cell">
           <div className="stat-label">Artist Budget</div>
-          <div className="stat-value" style={{ color: currentSpend > TOTAL_BUDGET ? BRAND_RED : 'var(--text-primary)' }}>
-            ${currentSpend.toLocaleString()} / ${TOTAL_BUDGET.toLocaleString()}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+            <span style={{ fontWeight: '900', fontSize: '1.4rem' }}>$</span>
+            <input type="number" value={artistBudget} onChange={e => saveWorkspaceData(null, undefined, Number(e.target.value), undefined)} className="clean-inline-input text-mono" style={{ color: currentSpend > artistBudget ? BRAND_RED : 'var(--text-primary)', width: '110px', fontWeight: '900', fontSize: '1.4rem', border: 'none', background: 'transparent' }} />
+            <span className="inline-progress-subtext" style={{ fontSize: '0.8rem', opacity: 0.6 }}>(${currentSpend.toLocaleString()} ALLOCATED)</span>
           </div>
+        </div>
+        <div className="metric-strip-divider" />
+        <div className="metric-strip-cell">
+          <div className="stat-label">Show Door Time</div>
+          <input type="time" value={startTimeStr} onChange={e => saveWorkspaceData(null, undefined, undefined, e.target.value)} className="clean-inline-input text-mono" style={{ fontSize: '1.3rem', width: '130px', fontWeight: '900', border: 'none', background: 'transparent' }} />
         </div>
       </div>
 
+      {/* SECURITY CLOUD MODULE MODAL */}
+      {showAuthModal && (
+        <div className="modal-backdrop-layer">
+          <div className="modal-container-card panel">
+            <h2 className="panel-title">{isSignUp ? "Create Account" : "Sync Workspace Profile"}</h2>
+            <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: '12px 0' }}>
+              Access cloud syncing capabilities across screen contexts.
+            </p>
+            <form onSubmit={handleAuthSubmit} className="negotiator-form">
+              <input required type="email" placeholder="Email Address" value={authEmail} onChange={e => setAuthEmail(e.target.value)} className="input-premium-brutalist" style={{ marginBottom: '8px' }} />
+              <input required type="password" placeholder="Password (min 6 chars)" value={authPassword} onChange={e => setAuthPassword(e.target.value)} className="input-premium-brutalist" style={{ marginBottom: '12px' }} />
+              <button type="submit" className="btn-square-brand-solid" style={{ width: '100%', padding: '12px', background: '#000', color: '#fff' }}>
+                {isSignUp ? "Register Account" : "Connect Setup"}
+              </button>
+              <button type="button" onClick={() => setIsSignUp(!isSignUp)} style={{ background: 'none', border: 'none', textDecoration: 'underline', marginTop: '12px', fontSize: '0.8rem', cursor: 'pointer' }}>
+                {isSignUp ? "Have an account? Log In" : "Need an account? Register"}
+              </button>
+              <button type="button" onClick={() => setShowAuthModal(false)} className="btn-square-outline" style={{ width: '100%', marginTop: '8px' }}>Cancel</button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* DIALOG NEW ENTRY MODULE */}
       {showAddModal && (
         <div className="modal-backdrop-layer">
           <div className="modal-container-card panel">
@@ -335,6 +510,7 @@ export default function App() {
         </div>
       )}
 
+      {/* CORE WORKSPACE GRID CONTAINER */}
       <div className="layout-grid">
         <div className="column-left">
           <div className="panel main-stage" onDragOver={(e) => handleDragOver(e, 'active')} onDrop={(e) => handleDrop(e, 'active')}>
@@ -356,6 +532,7 @@ export default function App() {
           </div>
         </div>
 
+        {/* FINANCIAL RIGHT SIDE PANEL */}
         <div className="column-right panel right-sidebar-card">
           {selectedArtist ? (
             <>
