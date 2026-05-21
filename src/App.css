@@ -491,4 +491,37 @@ body {
 .hold-pool-container::-webkit-scrollbar-thumb,
 .timeline-track-container::-webkit-scrollbar-thumb {
   background: var(--border-heavy);
+}/* Dashboard Premium Extensions */
+.animate-fade {
+  animation: fadeInHub 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes fadeInHub {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.dashboard-view-wrapper {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 20px;
+}
+
+.dashboard-card {
+  transition: transform 0.15s ease, box-shadow 0.15s ease !important;
+}
+
+.dashboard-card:hover {
+  transform: translate(-2px, -2px);
+  box-shadow: 6px 6px 0px #000 !important;
+}
+
+.clean-inline-input:focus {
+  outline: none;
+  border-bottom: 2px solid #000;
+}
+
+input[type="time"]::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+  filter: invert(0);
 }

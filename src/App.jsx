@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import './App.css';
 
-// Firebase Imports
+// Firebase Modules
 import { auth, db } from './firebase';
 import { 
   signInWithEmailAndPassword, 
@@ -35,20 +35,24 @@ const initialRoster = [
 ];
 
 export default function App() {
-  // --- FIREBASE ACCOUNT STATE ---
+  // --- VIEW ROUTING STATE ---
+  // Screen options: 'dashboard' or 'editor'
+  const [currentView, setCurrentView] = useState('dashboard');
+
+  // --- FIREBASE SECURITY STATE ---
   const [user, setUser] = useState(null);
   const [authEmail, setAuthEmail] = useState('');
   const [authPassword, setAuthPassword] = useState('');
   const [isSignUp, setIsSignUp] = useState(false);
   const [showAuthModal, setShowAuthModal] = useState(false);
 
-  // --- MULTI-LINEUP WORKSPACE MANAGERS ---
+  // --- MASTER STORAGE DATA ---
   const [lineups, setLineups] = useState([
     { id: '1', name: "Main Stage Draft", activeRoster: [], bench: initialRoster }
   ]);
   const [currentLineupId, setCurrentLineupId] = useState('1');
 
-  // --- CORE APP METRICS ---
+  // --- REGIONAL APP METRICS ---
   const [ticketCap, setTicketCap] = useState(1150);
   const [artistBudget, setArtistBudget] = useState(18000);
   const [startTimeStr, setStartTimeStr] = useState("15:00");
@@ -56,7 +60,7 @@ export default function App() {
   const TICKET_PRICE = 40; 
   const BRAND_RED = '#FF0033';
 
-  // --- UI LOCAL STATES ---
+  // --- INTERACTION HOOKS ---
   const [selectedArtistName, setSelectedArtistName] = useState('');
   const [isEditing, setIsEditing] = useState(false);
   const [draggedItem, setDraggedItem] = useState(null);
@@ -67,19 +71,21 @@ export default function App() {
     name: '', tier: 'Low-tier', fee: '', status: 'Inquiry', notes: '', pull: '', duration: 30
   });
 
-  // Safe Multi-Workspace Active References
+  // Safe Workspace Dynamic Selectors
   const activeLineup = lineups.find(l => l.id === currentLineupId) || lineups[0];
-  const { activeRoster, bench } = activeLineup;
+  const activeRoster = activeLineup?.activeRoster || [];
+  const bench = activeLineup?.bench || [];
   const allArtists = [...activeRoster, ...bench];
   const selectedArtist = allArtists.find(a => a.name === selectedArtistName) || allArtists[0];
   const currentSpend = activeRoster.reduce((sum, artist) => sum + artist.fee, 0);
   const currentPull = activeRoster.reduce((sum, artist) => sum + artist.pull, 0);
 
-  // 1. Listen for Real-time Auth Changes
+  // Sync Auth State Hook
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
       if (!currentUser) {
+        setCurrentView('dashboard');
         const saved = localStorage.getItem('crosswire_cloud_lineups');
         if (saved) setLineups(JSON.parse(saved));
       }
@@ -87,7 +93,7 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // 2. Real-Time Cloud Subscription via Firestore
+  // Firestore Real-Time Stream Engine
   useEffect(() => {
     if (!user) return;
 
@@ -100,26 +106,19 @@ export default function App() {
         if (data.artistBudget) setArtistBudget(data.artistBudget);
         if (data.startTimeStr) setStartTimeStr(data.startTimeStr);
       } else {
-        setDoc(docRef, {
-          lineups,
-          ticketCap,
-          artistBudget,
-          startTimeStr
-        });
+        setDoc(docRef, { lineups, ticketCap, artistBudget, startTimeStr });
       }
     });
-
     return () => unsubscribe();
   }, [user]);
 
-  // 3. Fallback Local Storage Backup
+  // Local Storage Failback Engine
   useEffect(() => {
     if (!user) {
       localStorage.setItem('crosswire_cloud_lineups', JSON.stringify(lineups));
     }
   }, [lineups, user]);
 
-  // Global Workspace Sync Engine
   const saveWorkspaceData = async (updatedLineups, optCap, optBudget, optTime) => {
     const nextLineups = updatedLineups || lineups;
     const nextCap = optCap !== undefined ? optCap : ticketCap;
@@ -140,7 +139,7 @@ export default function App() {
           startTimeStr: nextTime
         }, { merge: true });
       } catch (err) {
-        console.error("Firestore Update Protection Intercept: ", err);
+        console.error("Firestore Security Guard Block: ", err);
       }
     }
   };
@@ -150,7 +149,6 @@ export default function App() {
     saveWorkspaceData(updated);
   };
 
-  // Auth Submit Routing
   const handleAuthSubmit = async (e) => {
     e.preventDefault();
     try {
@@ -169,10 +167,12 @@ export default function App() {
 
   const handleLogout = () => {
     signOut(auth);
+    setLineups([{ id: '1', name: "Main Stage Draft", activeRoster: [], bench: initialRoster }]);
     setCurrentLineupId('1');
+    setCurrentView('dashboard');
   };
 
-  // Your Director's Dynamic Time Calculator Engine
+  // Time Slot Logic
   const getDynamicTime = (index) => {
     let totalMinutes = 0;
     for (let i = 0; i < index; i++) {
@@ -187,7 +187,7 @@ export default function App() {
     return startTime.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true });
   };
 
-  // Drag and Drop Controllers
+  // Drag and Drop Logic
   const handleDragStart = (e, sourceList, index) => {
     setDraggedItem({ list: sourceList, index });
     e.dataTransfer.setData('sourceList', sourceList);
@@ -266,12 +266,29 @@ export default function App() {
 
   const handleCreateLineup = (e) => {
     e.preventDefault();
+    if (!user) {
+      setShowAuthModal(true);
+      return;
+    }
     if (!newLineupName.trim()) return;
     const newId = Date.now().toString();
     const created = { id: newId, name: newLineupName.trim(), activeRoster: [], bench: initialRoster };
-    saveWorkspaceData([...lineups, created]);
+    const nextLineups = [...lineups, created];
+    saveWorkspaceData(nextLineups);
     setCurrentLineupId(newId);
     setNewLineupName('');
+    setCurrentView('editor');
+  };
+
+  const handleDeleteLineup = (id, e) => {
+    e.stopPropagation();
+    if (!confirm("Are you sure you want to completely erase this festival mockup?")) return;
+    const nextLineups = lineups.filter(l => l.id !== id);
+    if (nextLineups.length === 0) {
+      nextLineups.push({ id: '1', name: "Main Stage Draft", activeRoster: [], bench: initialRoster });
+    }
+    saveWorkspaceData(nextLineups);
+    setCurrentLineupId(nextLineups[0].id);
   };
 
   const handleAddArtist = (e) => {
@@ -326,6 +343,16 @@ export default function App() {
       updateCurrentLineupData(activeRoster, bench.map(a => a.name === updatedArtist.name ? updatedArtist : a));
     }
     setIsEditing(false);
+  };
+
+  const openLineupInEditor = (id) => {
+    if (!user) {
+      setShowAuthModal(true);
+      return;
+    }
+    setCurrentLineupId(id);
+    setSelectedArtistName('');
+    setCurrentView('editor');
   };
 
   const renderArtistCard = (artist, index, listType) => {
@@ -384,70 +411,13 @@ export default function App() {
 
   return (
     <div className="app-container">
-      {/* BRAND INTERFACE HEADER */}
-      <header className="header">
-        <div className="brand-wrapper">
-          <h1 className="brand-title">LineupIQ<span className="brand-dot">.</span></h1>
-          <span className="brand-version">v2.0</span>
-        </div>
-        
-        <div className="header-controls" style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-          {/* Workspace Switcher */}
-          <div className="lineup-selector-wrapper" style={{ display: 'flex', alignItems: 'center', gap: '8px', border: '2px solid #000', padding: '4px 12px', background: '#fff' }}>
-            <span className="stat-label" style={{ margin: 0, fontSize: '0.75rem' }}>Workspace:</span>
-            <select value={currentLineupId} onChange={e => { setCurrentLineupId(e.target.value); setSelectedArtistName(''); }} style={{ border: 'none', fontWeight: '900', textTransform: 'uppercase', outline: 'none', cursor: 'pointer' }}>
-              {lineups.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
-            </select>
-          </div>
-
-          {/* Create Layout Sub-Form */}
-          <form onSubmit={handleCreateLineup} style={{ display: 'flex', gap: '4px' }}>
-            <input required type="text" placeholder="Layout Title..." value={newLineupName} onChange={e => setNewLineupName(e.target.value)} className="input-premium-brutalist" style={{ padding: '6px 10px', fontSize: '0.75rem' }} />
-            <button type="submit" className="btn-square-outline" style={{ padding: '6px 12px' }}>Save New</button>
-          </form>
-
-          <button type="button" onClick={() => setShowAddModal(true)} className="btn-square-outline" style={{ background: '#000', color: '#fff' }}>
-            + Add Artist
-          </button>
-
-          <button type="button" onClick={() => user ? handleLogout() : setShowAuthModal(true)} className="btn-square-outline" style={{ borderColor: BRAND_RED, color: BRAND_RED, fontWeight: 'bold' }}>
-            {user ? `Sign Out (${user.email})` : 'Sync Device'}
-          </button>
-        </div>
-      </header>
-
-      {/* DYNAMIC ADJUSTABLE CONTINUOUS STRIP */}
-      <div className="continuous-metrics-strip" style={{ padding: '6px 16px' }}>
-        <div className="metric-strip-cell">
-          <div className="stat-label">Ticket Cap</div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <input type="number" value={ticketCap} onChange={e => saveWorkspaceData(null, Number(e.target.value), undefined, undefined)} className="clean-inline-input text-mono" style={{ color: currentPull > ticketCap ? BRAND_RED : 'var(--text-primary)', width: '90px', fontValues: 'inherit', fontWeight: '900', fontSize: '1.4rem', border: 'none', background: 'transparent' }} />
-            <span className="inline-progress-subtext" style={{ fontSize: '0.8rem', opacity: 0.6 }}>({currentPull.toLocaleString()} SOLD)</span>
-          </div>
-        </div>
-        <div className="metric-strip-divider" />
-        <div className="metric-strip-cell">
-          <div className="stat-label">Artist Budget</div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-            <span style={{ fontWeight: '900', fontSize: '1.4rem' }}>$</span>
-            <input type="number" value={artistBudget} onChange={e => saveWorkspaceData(null, undefined, Number(e.target.value), undefined)} className="clean-inline-input text-mono" style={{ color: currentSpend > artistBudget ? BRAND_RED : 'var(--text-primary)', width: '110px', fontWeight: '900', fontSize: '1.4rem', border: 'none', background: 'transparent' }} />
-            <span className="inline-progress-subtext" style={{ fontSize: '0.8rem', opacity: 0.6 }}>(${currentSpend.toLocaleString()} ALLOCATED)</span>
-          </div>
-        </div>
-        <div className="metric-strip-divider" />
-        <div className="metric-strip-cell">
-          <div className="stat-label">Show Door Time</div>
-          <input type="time" value={startTimeStr} onChange={e => saveWorkspaceData(null, undefined, undefined, e.target.value)} className="clean-inline-input text-mono" style={{ fontSize: '1.3rem', width: '130px', fontWeight: '900', border: 'none', background: 'transparent' }} />
-        </div>
-      </div>
-
-      {/* SECURITY CLOUD MODULE MODAL */}
+      {/* GLOBAL BACKGROUND MODAL FOR AUTH */}
       {showAuthModal && (
         <div className="modal-backdrop-layer">
           <div className="modal-container-card panel">
             <h2 className="panel-title">{isSignUp ? "Create Account" : "Sync Workspace Profile"}</h2>
             <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: '12px 0' }}>
-              Access cloud syncing capabilities across screen contexts.
+              You must log in or create an account to access or create lineup workspaces.
             </p>
             <form onSubmit={handleAuthSubmit} className="negotiator-form">
               <input required type="email" placeholder="Email Address" value={authEmail} onChange={e => setAuthEmail(e.target.value)} className="input-premium-brutalist" style={{ marginBottom: '8px' }} />
@@ -456,7 +426,7 @@ export default function App() {
                 {isSignUp ? "Register Account" : "Connect Setup"}
               </button>
               <button type="button" onClick={() => setIsSignUp(!isSignUp)} style={{ background: 'none', border: 'none', textDecoration: 'underline', marginTop: '12px', fontSize: '0.8rem', cursor: 'pointer' }}>
-                {isSignUp ? "Have an account? Log In" : "Need an account? Register"}
+                {isSignUp ? "Have an account? Log In" : "Need an account? Register Here"}
               </button>
               <button type="button" onClick={() => setShowAuthModal(false)} className="btn-square-outline" style={{ width: '100%', marginTop: '8px' }}>Cancel</button>
             </form>
@@ -464,164 +434,305 @@ export default function App() {
         </div>
       )}
 
-      {/* DIALOG NEW ENTRY MODULE */}
-      {showAddModal && (
-        <div className="modal-backdrop-layer">
-          <div className="modal-container-card panel">
-            <div className="panel-header">
-              <h2 className="panel-title">New Artist Entry</h2>
+      {/* DASHBOARD CENTRALIZED HUB VIEW */}
+      {currentView === 'dashboard' && (
+        <div className="dashboard-view-wrapper animate-fade">
+          <header className="header">
+            <div className="brand-wrapper">
+              <h1 className="brand-title">LineupIQ<span className="brand-dot">.</span></h1>
+              <span className="brand-version">v2.0 Dashboard</span>
             </div>
-            <form onSubmit={handleAddArtist} className="negotiator-form">
-              <div className="form-row-item">
-                <span className="sidebar-field-label">Artist Name</span>
-                <input required type="text" value={newArtist.name} onChange={e => setNewArtist({...newArtist, name: e.target.value})} className="input-premium-brutalist" />
-              </div>
-              <div className="form-row-item">
-                <span className="sidebar-field-label">Tier Group</span>
-                <select value={newArtist.tier} onChange={e => setNewArtist({...newArtist, tier: e.target.value})} className="input-premium-brutalist">
-                  <option value="Headliner">Headliner</option>
-                  <option value="Mid-tier">Mid-tier</option>
-                  <option value="Low-tier">Low-tier</option>
-                </select>
-              </div>
-              <div className="form-row-item">
-                <span className="sidebar-field-label">Fee ($)</span>
-                <input type="number" value={newArtist.fee} onChange={e => setNewArtist({...newArtist, fee: e.target.value})} className="input-premium-brutalist" />
-              </div>
-              <div className="form-row-item">
-                <span className="sidebar-field-label">Projected Ticket Pull</span>
-                <input type="number" value={newArtist.pull} onChange={e => setNewArtist({...newArtist, pull: e.target.value})} className="input-premium-brutalist" />
-              </div>
-              <div className="form-row-item">
-                <span className="sidebar-field-label">Duration</span>
-                <select value={newArtist.duration} onChange={e => setNewArtist({...newArtist, duration: e.target.value})} className="input-premium-brutalist">
-                  <option value="15">15 Min</option>
-                  <option value="30">30 Min</option>
-                  <option value="45">45 Min</option>
-                  <option value="60">60 Min</option>
-                </select>
-              </div>
-              <div style={{ display: 'flex', gap: '16px', marginTop: '12px' }}>
-                <button type="submit" className="btn-square-outline" style={{ background: '#000', color: '#fff', flex: 1 }}>Add</button>
-                <button type="button" onClick={() => setShowAddModal(false)} className="btn-square-outline" style={{ flex: 1 }}>Cancel</button>
-              </div>
-            </form>
+            <div>
+              {user ? (
+                <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                  <span className="stat-label" style={{ fontSize: '0.85rem' }}>Active Operator: <strong>{user.email}</strong></span>
+                  <button onClick={handleLogout} className="btn-square-outline" style={{ borderColor: BRAND_RED, color: BRAND_RED }}>Sign Out</button>
+                </div>
+              ) : (
+                <button onClick={() => { setIsSignUp(false); setShowAuthModal(true); }} className="btn-square-brand-solid" style={{ background: BRAND_RED, color: '#fff' }}>
+                  Sign In to Create Lineups
+                </button>
+              )}
+            </div>
+          </header>
+
+          <div className="dashboard-hero-banner panel" style={{ padding: '32px', background: '#fafafa', marginBottom: '24px', textAlign: 'left' }}>
+            <h2 className="panel-title" style={{ fontSize: '2rem', marginBottom: '8px' }}>Festival Logistics Command Center</h2>
+            <p style={{ color: 'var(--text-secondary)', maxWidth: '700px', lineHeight: '1.5' }}>
+              Welcome back. Below are your localized smart layouts. Securely lock booking strategies, calculate live budget margins, and project gate analytics. 
+              {!user && <strong style={{ color: BRAND_RED }}> Sign in above to activate cloud database updates.</strong>}
+            </p>
+          </div>
+
+          <div className="dashboard-grid-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+            <h3 className="panel-title" style={{ fontSize: '1.2rem' }}>Your Active Lineups ({lineups.length})</h3>
+          </div>
+
+          <div className="dashboard-lineups-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '20px' }}>
+            {/* New Lineup Trigger Card */}
+            <div className="panel dashboard-card create-card" style={{ padding: '24px', display: 'flex', flexDirection: 'column', justifyContent: 'center', borderStyle: 'dashed', background: 'rgba(0,0,0,0.02)' }}>
+              <h4 className="card-name" style={{ marginBottom: '12px', display: 'block', width: '100%' }}>+ Initialize Workspace</h4>
+              <form onSubmit={handleCreateLineup} style={{ display: 'flex', flexDirection: 'column', gap: '8px', width: '100%' }}>
+                <input required type="text" placeholder="e.g., Rolling Loud Stage B" value={newLineupName} onChange={e => setNewLineupName(e.target.value)} className="input-premium-brutalist" style={{ width: '100%' }} />
+                <button type="submit" className="btn-square-brand-solid" style={{ background: '#000', color: '#fff', width: '100%', padding: '10px' }}>
+                  {user ? "Create Layout" : "Log In to Create"}
+                </button>
+              </form>
+            </div>
+
+            {/* Loop Over Lineups */}
+            {lineups.map(lineup => {
+              const bookingCost = lineup.activeRoster?.reduce((sum, a) => sum + a.fee, 0) || 0;
+              const totalTalent = (lineup.activeRoster?.length || 0) + (lineup.bench?.length || 0);
+              return (
+                <div 
+                  key={lineup.id} 
+                  onClick={() => openLineupInEditor(lineup.id)}
+                  className="panel dashboard-card lineup-item-card" 
+                  style={{ padding: '24px', textAlign: 'left', cursor: 'pointer', transition: 'transform 0.2s, box-shadow 0.2s', background: '#fff' }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
+                    <h4 className="brand-title" style={{ fontSize: '1.25rem', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '80%' }}>{lineup.name}</h4>
+                    {lineups.length > 1 && (
+                      <button onClick={(e) => handleDeleteLineup(lineup.id, e)} className="inline-delete-cross" style={{ fontSize: '1.2rem', padding: '0 4px' }}>×</button>
+                    )}
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '0.85rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ color: 'var(--text-secondary)' }}>Active on Stage:</span>
+                      <strong className="text-mono">{lineup.activeRoster?.length || 0} Acts</strong>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ color: 'var(--text-secondary)' }}>Total Roster Pool:</span>
+                      <strong>{totalTalent} Artists</strong>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '8px', borderTop: '1px solid var(--border-light)', paddingTop: '8px' }}>
+                      <span style={{ color: 'var(--text-secondary)' }}>Talent Spend:</span>
+                      <strong className="text-mono" style={{ color: bookingCost > artistBudget ? BRAND_RED : 'inherit' }}>${bookingCost.toLocaleString()}</strong>
+                    </div>
+                  </div>
+                  <button className="btn-square-outline" style={{ width: '100%', marginTop: '16px', fontSize: '0.75rem', padding: '8px' }}>Open Builder Grid →</button>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
 
-      {/* CORE WORKSPACE GRID CONTAINER */}
-      <div className="layout-grid">
-        <div className="column-left">
-          <div className="panel main-stage" onDragOver={(e) => handleDragOver(e, 'active')} onDrop={(e) => handleDrop(e, 'active')}>
-            <div className="panel-header">
-                <h2 className="panel-title">Lineup ({activeRoster.length})</h2>
+      {/* CORE BUILDER GRID VIEW */}
+      {currentView === 'editor' && (
+        <div className="editor-view-wrapper animate-fade">
+          <header className="header">
+            <div className="brand-wrapper">
+              <button onClick={() => setCurrentView('dashboard')} className="btn-square-outline" style={{ padding: '4px 10px', fontSize: '0.75rem', marginRight: '12px' }}>
+                ← Dashboard
+              </button>
+              <h1 className="brand-title">{activeLineup.name}</h1>
             </div>
-            <div className="timeline-track-container">
-              {activeRoster.map((artist, i) => renderArtistCard(artist, i, 'active'))}
-            </div>
-          </div>
-
-          <div className="panel bench" onDragOver={(e) => handleDragOver(e, 'bench')} onDrop={(e) => handleDrop(e, 'bench')}>
-            <div className="panel-header">
-                <h2 className="panel-title" style={{ color: 'var(--text-secondary)' }}>Standby Pool ({bench.length})</h2>
-            </div>
-            <div className="hold-pool-container">
-              {bench.map((artist, i) => renderArtistCard(artist, i, 'bench'))}
-            </div>
-          </div>
-        </div>
-
-        {/* FINANCIAL RIGHT SIDE PANEL */}
-        <div className="column-right panel right-sidebar-card">
-          {selectedArtist ? (
-            <>
-              <div className="notes-section" style={{ marginTop: '0px' }}>
-                   <h2 className="panel-title">{selectedArtist.name}</h2>
-                   <p className="notes-content-text" style={{ marginTop: '16px', textAlign: 'left' }}>{selectedArtist.notes || "No workspace log lines found for active profile focus."}</p>
+            
+            <div className="header-controls" style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+              <div className="lineup-selector-wrapper" style={{ display: 'flex', alignItems: 'center', gap: '8px', border: '2px solid #000', padding: '4px 12px', background: '#fff' }}>
+                <span className="stat-label" style={{ margin: 0, fontSize: '0.75rem' }}>Switch:</span>
+                <select value={currentLineupId} onChange={e => { setCurrentLineupId(e.target.value); setSelectedArtistName(''); }} style={{ border: 'none', fontWeight: '900', textTransform: 'uppercase', outline: 'none', cursor: 'pointer' }}>
+                  {lineups.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+                </select>
               </div>
 
-              <hr className="clean-rule-divider" />
+              <button type="button" onClick={() => setShowAddModal(true)} className="btn-square-outline" style={{ background: '#000', color: '#fff' }}>
+                + Add Artist
+              </button>
 
-              <div className="financial-vector-section">
-                <h2 className="panel-title section-title-spacing">Finances</h2>
+              <button type="button" onClick={handleLogout} className="btn-square-outline" style={{ borderColor: BRAND_RED, color: BRAND_RED }}>
+                Sign Out
+              </button>
+            </div>
+          </header>
 
-                {isEditing ? (
-                  <form onSubmit={handleEditSubmit} className="negotiator-form">
-                    <div className="form-row-item">
-                        <span className="stat-label">Tier Group</span>
-                        <select name="tier" defaultValue={selectedArtist.tier} className="input-premium-brutalist" style={{ width: '140px' }}>
-                            <option value="Headliner">Headliner</option>
-                            <option value="Mid-tier">Mid-tier</option>
-                            <option value="Low-tier">Low-tier</option>
-                        </select>
-                    </div>
-                    <div className="form-row-item">
-                        <span className="stat-label">Duration Block</span>
-                        <select name="duration" defaultValue={selectedArtist.duration} className="input-premium-brutalist" style={{ width: '140px' }}>
-                            <option value="15">15 Minutes</option><option value="30">30 Minutes</option><option value="45">45 Minutes</option><option value="60">60 Minutes</option>
-                        </select>
-                    </div>
-                    <div className="form-row-item">
-                        <span className="stat-label">Guaranteed Fee ($)</span>
-                        <input name="fee" type="number" defaultValue={selectedArtist.fee} className="input-premium-brutalist" style={{ width: '120px', textAlign: 'right' }} />
-                    </div>
-                    <div className="form-row-item">
-                        <span className="stat-label">Projected Ticket Pull</span>
-                        <input name="pull" type="number" defaultValue={selectedArtist.pull} className="input-premium-brutalist" style={{ width: '120px', textAlign: 'right' }} />
-                    </div>
-                    <div className="form-row-item">
-                        <span className="stat-label">Status</span>
-                        <select name="status" defaultValue={selectedArtist.status} className="input-premium-brutalist" style={{ width: '180px' }}>
-                            <option value="Booked">Booked</option>
-                            <option value="Reached out">Reached out</option>
-                            <option value="Inquiry">Inquiry</option>
-                            <option value="Draft Contract">Draft Contract</option>
-                        </select>
-                    </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '12px' }}>
-                        <span className="stat-label">Edit Notes</span>
-                        <textarea name="notes" defaultValue={selectedArtist.notes} className="input-premium-brutalist" style={{ minHeight: '80px', resize: 'vertical', fontFamily: 'inherit', lineHeight: '1.4' }} />
-                    </div>
-                    <div style={{ display: 'flex', gap: '16px', marginTop: 'auto' }}>
-                        <button type="submit" className="btn-square-brand-solid" style={{ flex: 1 }}>Commit</button>
-                        <button type="button" onClick={() => setIsEditing(false)} className="btn-square-outline" style={{ flex: 1 }}>Cancel</button>
-                    </div>
-                  </form>
-                ) : (
-                  <div className="read-only-data-grid">
-                    <div className="form-row-item">
-                      <span className="sidebar-field-label">Schedule Block:</span>
-                      <span className="sidebar-field-value">
-                        {activeRoster.findIndex(a => a.name === selectedArtist.name) !== -1 
-                          ? `${getDynamicTime(activeRoster.findIndex(a => a.name === selectedArtist.name))} (${selectedArtist.duration} MIN)` 
-                          : 'STANDBY POOL'}
-                      </span>
-                    </div>
-                    <div className="form-row-item">
-                      <span className="sidebar-field-label">Cost:</span>
-                      <span className="sidebar-field-value text-mono">${selectedArtist.fee.toLocaleString()} USD</span>
-                    </div>
-                    <div className="form-row-item">
-                      <span className="sidebar-field-label">Status:</span>
-                      <span className="sidebar-field-value">{selectedArtist.status}</span>
-                    </div>
-                    <div className="form-row-item breakeven-container">
-                        <span className="breakeven-label">BREAK-EVEN:</span>
-                        <span className="breakeven-value">
-                          {Math.ceil(selectedArtist.fee / TICKET_PRICE)} TICKETS
-                        </span>
-                    </div>
-                    <button onClick={() => setIsEditing(true)} className="status-tag-block offer-block">Review Offer</button>
+          {/* METRICS PANEL STRIP */}
+          <div className="continuous-metrics-strip" style={{ padding: '6px 16px' }}>
+            <div className="metric-strip-cell">
+              <div className="stat-label">Ticket Cap</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <input type="number" value={ticketCap} onChange={e => saveWorkspaceData(null, Number(e.target.value), undefined, undefined)} className="clean-inline-input text-mono" style={{ color: currentPull > ticketCap ? BRAND_RED : 'var(--text-primary)', width: '90px', fontWeight: '900', fontSize: '1.4rem', border: 'none', background: 'transparent' }} />
+                <span className="inline-progress-subtext" style={{ fontSize: '0.8rem', opacity: 0.6 }}>({currentPull.toLocaleString()} SOLD)</span>
+              </div>
+            </div>
+            <div className="metric-strip-divider" />
+            <div className="metric-strip-cell">
+              <div className="stat-label">Artist Budget</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                <span style={{ fontWeight: '900', fontSize: '1.4rem' }}>$</span>
+                <input type="number" value={artistBudget} onChange={e => saveWorkspaceData(null, undefined, Number(e.target.value), undefined)} className="clean-inline-input text-mono" style={{ color: currentSpend > artistBudget ? BRAND_RED : 'var(--text-primary)', width: '110px', fontWeight: '900', fontSize: '1.4rem', border: 'none', background: 'transparent' }} />
+                <span className="inline-progress-subtext" style={{ fontSize: '0.8rem', opacity: 0.6 }}>(${currentSpend.toLocaleString()} ALLOCATED)</span>
+              </div>
+            </div>
+            <div className="metric-strip-divider" />
+            <div className="metric-strip-cell">
+              <div className="stat-label">Show Door Time</div>
+              <input type="time" value={startTimeStr} onChange={e => saveWorkspaceData(null, undefined, undefined, e.target.value)} className="clean-inline-input text-mono" style={{ fontSize: '1.3rem', width: '130px', fontWeight: '900', border: 'none', background: 'transparent' }} />
+            </div>
+          </div>
+
+          {/* DIALOG NEW ENTRY MODULE */}
+          {showAddModal && (
+            <div className="modal-backdrop-layer">
+              <div className="modal-container-card panel">
+                <div className="panel-header">
+                  <h2 className="panel-title">New Artist Entry</h2>
+                </div>
+                <form onSubmit={handleAddArtist} className="negotiator-form">
+                  <div className="form-row-item">
+                    <span className="sidebar-field-label">Artist Name</span>
+                    <input required type="text" value={newArtist.name} onChange={e => setNewArtist({...newArtist, name: e.target.value})} className="input-premium-brutalist" />
                   </div>
-                )}
+                  <div className="form-row-item">
+                    <span className="sidebar-field-label">Tier Group</span>
+                    <select value={newArtist.tier} onChange={e => setNewArtist({...newArtist, tier: e.target.value})} className="input-premium-brutalist">
+                      <option value="Headliner">Headliner</option>
+                      <option value="Mid-tier">Mid-tier</option>
+                      <option value="Low-tier">Low-tier</option>
+                    </select>
+                  </div>
+                  <div className="form-row-item">
+                    <span className="sidebar-field-label">Fee ($)</span>
+                    <input type="number" value={newArtist.fee} onChange={e => setNewArtist({...newArtist, fee: e.target.value})} className="input-premium-brutalist" />
+                  </div>
+                  <div className="form-row-item">
+                    <span className="sidebar-field-label">Projected Ticket Pull</span>
+                    <input type="number" value={newArtist.pull} onChange={e => setNewArtist({...newArtist, pull: e.target.value})} className="input-premium-brutalist" />
+                  </div>
+                  <div className="form-row-item">
+                    <span className="sidebar-field-label">Duration</span>
+                    <select value={newArtist.duration} onChange={e => setNewArtist({...newArtist, duration: e.target.value})} className="input-premium-brutalist">
+                      <option value="15">15 Min</option>
+                      <option value="30">30 Min</option>
+                      <option value="45">45 Min</option>
+                      <option value="60">60 Min</option>
+                    </select>
+                  </div>
+                  <div style={{ display: 'flex', gap: '16px', marginTop: '12px' }}>
+                    <button type="submit" className="btn-square-outline" style={{ background: '#000', color: '#fff', flex: 1 }}>Add</button>
+                    <button type="button" onClick={() => setShowAddModal(false)} className="btn-square-outline" style={{ flex: 1 }}>Cancel</button>
+                  </div>
+                </form>
               </div>
-            </>
-          ) : (
-            <div className="empty-state-message" style={{ margin: 'auto' }}>No Artists Left In Roster Parameters</div>
+            </div>
           )}
+
+          {/* WORKSPACE GRID CONTAINER */}
+          <div className="layout-grid">
+            <div className="column-left">
+              <div className="panel main-stage" onDragOver={(e) => handleDragOver(e, 'active')} onDrop={(e) => handleDrop(e, 'active')}>
+                <div className="panel-header">
+                    <h2 className="panel-title">Lineup ({activeRoster.length})</h2>
+                </div>
+                <div className="timeline-track-container">
+                  {activeRoster.map((artist, i) => renderArtistCard(artist, i, 'active'))}
+                </div>
+              </div>
+
+              <div className="panel bench" onDragOver={(e) => handleDragOver(e, 'bench')} onDrop={(e) => handleDrop(e, 'bench')}>
+                <div className="panel-header">
+                    <h2 className="panel-title" style={{ color: 'var(--text-secondary)' }}>Standby Pool ({bench.length})</h2>
+                </div>
+                <div className="hold-pool-container">
+                  {bench.map((artist, i) => renderArtistCard(artist, i, 'bench'))}
+                </div>
+              </div>
+            </div>
+
+            {/* FINANCIAL SIDE PANEL */}
+            <div className="column-right panel right-sidebar-card">
+              {selectedArtist ? (
+                <>
+                  <div className="notes-section" style={{ marginTop: '0px' }}>
+                       <h2 className="panel-title">{selectedArtist.name}</h2>
+                       <p className="notes-content-text" style={{ marginTop: '16px', textAlign: 'left' }}>{selectedArtist.notes || "No workspace log lines found for active profile focus."}</p>
+                  </div>
+
+                  <hr className="clean-rule-divider" />
+
+                  <div className="financial-vector-section">
+                    <h2 className="panel-title section-title-spacing">Finances</h2>
+
+                    {isEditing ? (
+                      <form onSubmit={handleEditSubmit} className="negotiator-form">
+                        <div className="form-row-item">
+                            <span className="stat-label">Tier Group</span>
+                            <select name="tier" defaultValue={selectedArtist.tier} className="input-premium-brutalist" style={{ width: '140px' }}>
+                                <option value="Headliner">Headliner</option>
+                                <option value="Mid-tier">Mid-tier</option>
+                                <option value="Low-tier">Low-tier</option>
+                            </select>
+                        </div>
+                        <div className="form-row-item">
+                            <span className="stat-label">Duration Block</span>
+                            <select name="duration" defaultValue={selectedArtist.duration} className="input-premium-brutalist" style={{ width: '140px' }}>
+                                <option value="15">15 Minutes</option><option value="30">30 Minutes</option><option value="45">45 Minutes</option><option value="60">60 Minutes</option>
+                            </select>
+                        </div>
+                        <div className="form-row-item">
+                            <span className="stat-label">Guaranteed Fee ($)</span>
+                            <input name="fee" type="number" defaultValue={selectedArtist.fee} className="input-premium-brutalist" style={{ width: '120px', textAlign: 'right' }} />
+                        </div>
+                        <div className="form-row-item">
+                            <span className="stat-label">Projected Ticket Pull</span>
+                            <input name="pull" type="number" defaultValue={selectedArtist.pull} className="input-premium-brutalist" style={{ width: '120px', textAlign: 'right' }} />
+                        </div>
+                        <div className="form-row-item">
+                            <span className="stat-label">Status</span>
+                            <select name="status" defaultValue={selectedArtist.status} className="input-premium-brutalist" style={{ width: '180px' }}>
+                                <option value="Booked">Booked</option>
+                                <option value="Reached out">Reached out</option>
+                                <option value="Inquiry">Inquiry</option>
+                                <option value="Draft Contract">Draft Contract</option>
+                            </select>
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '12px' }}>
+                            <span className="stat-label">Edit Notes</span>
+                            <textarea name="notes" defaultValue={selectedArtist.notes} className="input-premium-brutalist" style={{ minHeight: '80px', resize: 'vertical', fontFamily: 'inherit', lineHeight: '1.4' }} />
+                        </div>
+                        <div style={{ display: 'flex', gap: '16px', marginTop: 'auto' }}>
+                            <button type="submit" className="btn-square-brand-solid" style={{ flex: 1 }}>Commit</button>
+                            <button type="button" onClick={() => setIsEditing(false)} className="btn-square-outline" style={{ flex: 1 }}>Cancel</button>
+                        </div>
+                      </form>
+                    ) : (
+                      <div className="read-only-data-grid">
+                        <div className="form-row-item">
+                          <span className="sidebar-field-label">Schedule Block:</span>
+                          <span className="sidebar-field-value">
+                            {activeRoster.findIndex(a => a.name === selectedArtist.name) !== -1 
+                              ? `${getDynamicTime(activeRoster.findIndex(a => a.name === selectedArtist.name))} (${selectedArtist.duration} MIN)` 
+                              : 'STANDBY POOL'}
+                          </span>
+                        </div>
+                        <div className="form-row-item">
+                          <span className="sidebar-field-label">Cost:</span>
+                          <span className="sidebar-field-value text-mono">${selectedArtist.fee.toLocaleString()} USD</span>
+                        </div>
+                        <div className="form-row-item">
+                          <span className="sidebar-field-label">Status:</span>
+                          <span className="sidebar-field-value">{selectedArtist.status}</span>
+                        </div>
+                        <div className="form-row-item breakeven-container">
+                            <span className="breakeven-label">BREAK-EVEN:</span>
+                            <span className="breakeven-value">
+                              {Math.ceil(selectedArtist.fee / TICKET_PRICE)} TICKETS
+                            </span>
+                        </div>
+                        <button onClick={() => setIsEditing(true)} className="status-tag-block offer-block">Review Offer</button>
+                      </div>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <div className="empty-state-message" style={{ margin: 'auto' }}>No Artists Left In Roster Parameters</div>
+              )}
+            </div>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
