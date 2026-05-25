@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import './App.css';
 
-// Firebase Modules
+// Core Firebase Connection Engines
 import { auth, db } from './firebase';
 import { 
   signInWithEmailAndPassword, 
@@ -15,7 +15,7 @@ import {
   onSnapshot 
 } from 'firebase/firestore';
 
-const initialRoster = [
+const initialStandbyPool = [
   { name: "Kurobane", tier: "Low-tier", fee: 150, status: "Draft Contract", notes: "Personal Friend, low budget opening slot", pull: 15, duration: 30 },
   { name: "Akhsosa", tier: "Low-tier", fee: 350, status: "Inquiry", notes: "Early afternoon day slot", pull: 20, duration: 30 },
   { name: "Shawtyrokk", tier: "Low-tier", fee: 500, status: "Inquiry", notes: "$500 previously booked for in ATL", pull: 30, duration: 30 },
@@ -35,120 +35,94 @@ const initialRoster = [
 ];
 
 export default function App() {
-  // --- VIEW ROUTING STATE ---
-  // Screen options: 'dashboard' or 'editor'
+  // --- CORE SYSTEM NAVIGATION ---
   const [currentView, setCurrentView] = useState('dashboard');
 
-  // --- FIREBASE SECURITY STATE ---
+  // --- FIREBASE SECURITY AUTH SYSTEM ---
   const [user, setUser] = useState(null);
   const [authEmail, setAuthEmail] = useState('');
   const [authPassword, setAuthPassword] = useState('');
   const [isSignUp, setIsSignUp] = useState(false);
   const [showAuthModal, setShowAuthModal] = useState(false);
 
-  // --- MASTER STORAGE DATA ---
+  // --- DATABASE CENTRAL STATE ---
   const [lineups, setLineups] = useState([
-    { id: '1', name: "Main Stage Draft", activeRoster: [], bench: initialRoster }
+    { id: '1', name: "Crosswire 2026", activeRoster: [], bench: initialStandbyPool, ticketCap: 1150, artistBudget: 18000, startTimeStr: "15:00" }
   ]);
   const [currentLineupId, setCurrentLineupId] = useState('1');
 
-  // --- REGIONAL APP METRICS ---
-  const [ticketCap, setTicketCap] = useState(1150);
-  const [artistBudget, setArtistBudget] = useState(18000);
-  const [startTimeStr, setStartTimeStr] = useState("15:00");
-
-  const TICKET_PRICE = 40; 
-  const BRAND_RED = '#FF0033';
-
-  // --- INTERACTION HOOKS ---
-  const [selectedArtistName, setSelectedArtistName] = useState('');
-  const [isEditing, setIsEditing] = useState(false);
-  const [draggedItem, setDraggedItem] = useState(null);
-  const [dragOverItem, setDragOverItem] = useState(null);
-  const [showAddModal, setShowAddModal] = useState(false);
+  // --- COMPONENT WORKSPACE FORMS STATE ---
   const [newLineupName, setNewLineupName] = useState('');
+  const [newLineupCap, setNewLineupCap] = useState('1150');
+  const [newLineupBudget, setNewLineupBudget] = useState('18000');
+
+  const [showAddArtistModal, setShowAddArtistModal] = useState(false);
+  const [isEditingArtist, setIsEditingArtist] = useState(false);
+  const [selectedArtistName, setSelectedArtistName] = useState('');
+
   const [newArtist, setNewArtist] = useState({
     name: '', tier: 'Low-tier', fee: '', status: 'Inquiry', notes: '', pull: '', duration: 30
   });
 
-  // Safe Workspace Dynamic Selectors
+  const TICKET_PRICE = 40;
+
+  // Track Dynamic Workspace Selections Safely
   const activeLineup = lineups.find(l => l.id === currentLineupId) || lineups[0];
   const activeRoster = activeLineup?.activeRoster || [];
   const bench = activeLineup?.bench || [];
   const allArtists = [...activeRoster, ...bench];
-  const selectedArtist = allArtists.find(a => a.name === selectedArtistName) || allArtists[0];
-  const currentSpend = activeRoster.reduce((sum, artist) => sum + artist.fee, 0);
-  const currentPull = activeRoster.reduce((sum, artist) => sum + artist.pull, 0);
+  const selectedArtist = allArtists.find(a => a.name === selectedArtistName) || activeRoster[0] || bench[0];
 
-  // Sync Auth State Hook
+  const currentSpend = activeRoster.reduce((sum, a) => sum + Number(a.fee || 0), 0);
+  const currentPull = activeRoster.reduce((sum, a) => sum + Number(a.pull || 0), 0);
+
+  // Auth State Listener
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
       if (!currentUser) {
         setCurrentView('dashboard');
-        const saved = localStorage.getItem('crosswire_cloud_lineups');
-        if (saved) setLineups(JSON.parse(saved));
+        const savedLocal = localStorage.getItem('lineup_iq_local');
+        if (savedLocal) setLineups(JSON.parse(savedLocal));
       }
     });
     return () => unsubscribe();
   }, []);
 
-  // Firestore Real-Time Stream Engine
+  // Fire-Store Sync Stream Engine
   useEffect(() => {
     if (!user) return;
-
     const docRef = doc(db, "users", user.uid);
     const unsubscribe = onSnapshot(docRef, (docSnap) => {
       if (docSnap.exists()) {
         const data = docSnap.data();
         if (data.lineups) setLineups(data.lineups);
-        if (data.ticketCap) setTicketCap(data.ticketCap);
-        if (data.artistBudget) setArtistBudget(data.artistBudget);
-        if (data.startTimeStr) setStartTimeStr(data.startTimeStr);
       } else {
-        setDoc(docRef, { lineups, ticketCap, artistBudget, startTimeStr });
+        setDoc(docRef, { lineups });
       }
     });
     return () => unsubscribe();
   }, [user]);
 
-  // Local Storage Failback Engine
+  // Fallback Local Storage Sync Engine
   useEffect(() => {
     if (!user) {
-      localStorage.setItem('crosswire_cloud_lineups', JSON.stringify(lineups));
+      localStorage.setItem('lineup_iq_local', JSON.stringify(lineups));
     }
   }, [lineups, user]);
 
-  const saveWorkspaceData = async (updatedLineups, optCap, optBudget, optTime) => {
-    const nextLineups = updatedLineups || lineups;
-    const nextCap = optCap !== undefined ? optCap : ticketCap;
-    const nextBudget = optBudget !== undefined ? optBudget : artistBudget;
-    const nextTime = optTime !== undefined ? optTime : startTimeStr;
-
-    setLineups(nextLineups);
-    if (optCap !== undefined) setTicketCap(optCap);
-    if (optBudget !== undefined) setArtistBudget(optBudget);
-    if (optTime !== undefined) setStartTimeStr(optTime);
-
+  const saveWorkspaceState = async (updatedArray) => {
+    setLineups(updatedArray);
     if (user) {
       try {
-        await setDoc(doc(db, "users", user.uid), {
-          lineups: nextLineups,
-          ticketCap: nextCap,
-          artistBudget: nextBudget,
-          startTimeStr: nextTime
-        }, { merge: true });
+        await setDoc(doc(db, "users", user.uid), { lineups: updatedArray }, { merge: true });
       } catch (err) {
-        console.error("Firestore Security Guard Block: ", err);
+        console.error("Cloud Write Interrupted: ", err);
       }
     }
   };
 
-  const updateCurrentLineupData = (newActive, newBench) => {
-    const updated = lineups.map(l => l.id === currentLineupId ? { ...l, activeRoster: newActive, bench: newBench } : l);
-    saveWorkspaceData(updated);
-  };
-
+  // --- CONTROLLER HANDLERS ---
   const handleAuthSubmit = async (e) => {
     e.preventDefault();
     try {
@@ -165,571 +139,626 @@ export default function App() {
     }
   };
 
-  const handleLogout = () => {
+  const handleSignOut = () => {
     signOut(auth);
-    setLineups([{ id: '1', name: "Main Stage Draft", activeRoster: [], bench: initialRoster }]);
+    setLineups([{ id: '1', name: "Crosswire 2026", activeRoster: [], bench: initialStandbyPool, ticketCap: 1150, artistBudget: 18000, startTimeStr: "15:00" }]);
     setCurrentLineupId('1');
     setCurrentView('dashboard');
   };
 
-  // Time Slot Logic
-  const getDynamicTime = (index) => {
-    let totalMinutes = 0;
-    for (let i = 0; i < index; i++) {
-        const setDuration = Number(activeRoster[i].duration) || 30;
-        const breakTime = 15;
-        totalMinutes += (setDuration + breakTime);
-    }
-    const [hours, minutes] = startTimeStr.split(':').map(Number);
-    const startTime = new Date();
-    startTime.setHours(hours, minutes, 0, 0); 
-    startTime.setMinutes(startTime.getMinutes() + totalMinutes);
-    return startTime.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true });
-  };
-
-  // Drag and Drop Logic
-  const handleDragStart = (e, sourceList, index) => {
-    setDraggedItem({ list: sourceList, index });
-    e.dataTransfer.setData('sourceList', sourceList);
-    e.dataTransfer.setData('sourceIndex', index);
-  };
-
-  const handleDragOver = (e, targetList) => {
+  const handleCreateLineupSubmit = (e) => {
     e.preventDefault();
-    const panel = e.currentTarget.closest('.panel');
-    if (!panel) return;
-
-    const rect = panel.getBoundingClientRect();
-    const mouseY = e.clientY;
-    const threshold = 60; 
-    const topZone = rect.top + threshold;
-    const bottomZone = rect.bottom - threshold;
-
-    if (mouseY < topZone) {
-      panel.scrollTop -= 8;
-    } else if (mouseY > bottomZone) {
-      panel.scrollTop += 8;
-    }
-
-    const cards = Array.from(panel.querySelectorAll('.artist-card'));
-    let calculatedIndex = targetList === 'active' ? activeRoster.length : bench.length;
-
-    if (cards.length > 0) {
-      const nextCard = cards.find(card => {
-        const box = card.getBoundingClientRect();
-        return mouseY < (box.top + box.height / 2);
-      });
-
-      if (nextCard) {
-        const cardName = nextCard.getAttribute('data-name');
-        const list = targetList === 'active' ? activeRoster : bench;
-        const foundIndex = list.findIndex(a => a.name === cardName);
-        if (foundIndex !== -1) calculatedIndex = foundIndex;
-      }
-    }
-
-    if (dragOverItem?.list !== targetList || dragOverItem?.index !== calculatedIndex) {
-      setDragOverItem({ list: targetList, index: calculatedIndex });
-    }
-  };
-
-  const handleDrop = (e, targetList) => {
-    e.preventDefault();
-    const sourceList = e.dataTransfer.getData('sourceList');
-    const sourceIndex = parseInt(e.dataTransfer.getData('sourceIndex'), 10);
-    
-    const targetIndex = dragOverItem && dragOverItem.list === targetList 
-      ? dragOverItem.index 
-      : (targetList === 'active' ? activeRoster.length : bench.length);
-
-    setDraggedItem(null);
-    setDragOverItem(null);
-
-    if (sourceList === targetList && sourceIndex === targetIndex) return;
-
-    let sourceArray = sourceList === 'active' ? [...activeRoster] : [...bench];
-    let targetArray = targetList === 'active' ? [...activeRoster] : [...bench];
-    const [movedItem] = sourceArray.splice(sourceIndex, 1);
-    
-    if (sourceList === targetList) {
-      let finalTargetIndex = targetIndex;
-      if (sourceIndex < targetIndex) finalTargetIndex--;
-      finalTargetIndex = Math.max(0, Math.min(finalTargetIndex, sourceArray.length));
-      sourceArray.splice(finalTargetIndex, 0, movedItem);
-      sourceList === 'active' ? updateCurrentLineupData(sourceArray, bench) : updateCurrentLineupData(activeRoster, sourceArray);
-    } else {
-      let finalTargetIndex = Math.max(0, Math.min(targetIndex, targetArray.length));
-      targetArray.splice(finalTargetIndex, 0, movedItem);
-      sourceList === 'active' ? updateCurrentLineupData(sourceArray, targetArray) : updateCurrentLineupData(targetArray, sourceArray);
-    }
-  };
-
-  const handleCreateLineup = (e) => {
-    e.preventDefault();
-    if (!user) {
-      setShowAuthModal(true);
-      return;
-    }
+    if (!user) return; // Guard clause security check
     if (!newLineupName.trim()) return;
-    const newId = Date.now().toString();
-    const created = { id: newId, name: newLineupName.trim(), activeRoster: [], bench: initialRoster };
+
+    const created = {
+      id: Date.now().toString(),
+      name: newLineupName.trim(),
+      activeRoster: [],
+      bench: [],
+      ticketCap: Number(newLineupCap) || 1150,
+      artistBudget: Number(newLineupBudget) || 18000,
+      startTimeStr: "15:00"
+    };
+
     const nextLineups = [...lineups, created];
-    saveWorkspaceData(nextLineups);
-    setCurrentLineupId(newId);
+    saveWorkspaceState(nextLineups);
+    setCurrentLineupId(created.id);
+    setSelectedArtistName('');
+    
     setNewLineupName('');
+    setNewLineupCap('1150');
+    setNewLineupBudget('18000');
     setCurrentView('editor');
   };
 
   const handleDeleteLineup = (id, e) => {
     e.stopPropagation();
-    if (!confirm("Are you sure you want to completely erase this festival mockup?")) return;
-    const nextLineups = lineups.filter(l => l.id !== id);
+    if (!confirm("Are you sure you want to completely delete this festival lineup layout?")) return;
+    let nextLineups = lineups.filter(l => l.id !== id);
     if (nextLineups.length === 0) {
-      nextLineups.push({ id: '1', name: "Main Stage Draft", activeRoster: [], bench: initialRoster });
+      nextLineups = [{ id: '1', name: "Crosswire 2026", activeRoster: [], bench: initialStandbyPool, ticketCap: 1150, artistBudget: 18000, startTimeStr: "15:00" }];
     }
-    saveWorkspaceData(nextLineups);
+    saveWorkspaceState(nextLineups);
     setCurrentLineupId(nextLineups[0].id);
   };
 
-  const handleAddArtist = (e) => {
+  const handleUpdateTopMetricStrip = (field, value) => {
+    const updated = lineups.map(l => l.id === currentLineupId ? { ...l, [field]: value } : l);
+    saveWorkspaceState(updated);
+  };
+
+  const handleMoveArtistLists = (newActive, newBench) => {
+    const updated = lineups.map(l => l.id === currentLineupId ? { ...l, activeRoster: newActive, bench: newBench } : l);
+    saveWorkspaceState(updated);
+  };
+
+  // Automated Timeline Clock Scheduler
+  const calculateArtistTimeBlock = (index) => {
+    let elapsedMinutes = 0;
+    for (let i = 0; i < index; i++) {
+      const setDuration = Number(activeRoster[i].duration) || 30;
+      const turnAroundTime = 15;
+      elapsedMinutes += (setDuration + turnAroundTime);
+    }
+    const [hours, minutes] = (activeLineup.startTimeStr || "15:00").split(':').map(Number);
+    const dateInstance = new Date();
+    dateInstance.setHours(hours, minutes, 0, 0);
+    dateInstance.setMinutes(dateInstance.getMinutes() + elapsedMinutes);
+    return dateInstance.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true });
+  };
+
+  const handleAddArtistSubmit = (e) => {
     e.preventDefault();
     if (!newArtist.name) return;
-    const created = {
+    const formatted = {
       ...newArtist,
       fee: Number(newArtist.fee) || 0,
       pull: Number(newArtist.pull) || 0,
       duration: Number(newArtist.duration) || 30
     };
-    updateCurrentLineupData(activeRoster, [created, ...bench]);
-    setSelectedArtistName(created.name);
+    handleMoveArtistLists(activeRoster, [formatted, ...bench]);
+    setSelectedArtistName(formatted.name);
     setNewArtist({ name: '', tier: 'Low-tier', fee: '', status: 'Inquiry', notes: '', pull: '', duration: 30 });
-    setShowAddModal(false);
+    setShowAddArtistModal(false);
   };
 
-  const handleDeleteArtist = (name, e) => {
-    e.stopPropagation(); 
+  const handleEditArtistSubmit = (e) => {
     e.preventDefault();
-    
-    const confirmClear = window.confirm(`Permanently delete ${name} from roster parameters?`);
-    if (!confirmClear) return;
+    const dataForm = new FormData(e.target);
+    const updated = {
+      ...selectedArtist,
+      fee: Number(dataForm.get('fee')),
+      status: dataForm.get('status'),
+      pull: Number(dataForm.get('pull')),
+      duration: Number(dataForm.get('duration')),
+      tier: dataForm.get('tier'),
+      notes: dataForm.get('notes')
+    };
 
-    const filteredActive = activeRoster.filter(a => a.name !== name);
-    const filteredBench = bench.filter(a => a.name !== name);
-    
-    updateCurrentLineupData(filteredActive, filteredBench);
+    if (activeRoster.some(a => a.name === updated.name)) {
+      handleMoveArtistLists(activeRoster.map(a => a.name === updated.name ? updated : a), bench);
+    } else {
+      handleMoveArtistLists(activeRoster, bench.map(a => a.name === updated.name ? updated : a));
+    }
+    setIsEditingArtist(false);
+  };
 
+  const handleRemoveArtistFromPool = (name, e) => {
+    e.stopPropagation();
+    if (!confirm(`Permanently remove ${name} from this project?`)) return;
+    const nextActive = activeRoster.filter(a => a.name !== name);
+    const nextBench = bench.filter(a => a.name !== name);
+    handleMoveArtistLists(nextActive, nextBench);
     if (selectedArtistName === name) {
-      const remaining = [...filteredActive, ...filteredBench];
+      const remaining = [...nextActive, ...nextBench];
       setSelectedArtistName(remaining.length > 0 ? remaining[0].name : '');
     }
   };
 
-  const handleEditSubmit = (e) => {
+  // Native HTML5 Drop and Drag Transition System Controls
+  const handleDragStart = (e, artistName) => {
+    e.dataTransfer.setData("text/plain", artistName);
+  };
+
+  const handleDragOverArea = (e) => {
+    e.preventDefault(); 
+  };
+
+  const handleDropToActiveSequence = (e) => {
     e.preventDefault();
-    const formData = new FormData(e.target);
-    const updatedArtist = {
-      ...selectedArtist,
-      fee: Number(formData.get('fee')),
-      status: formData.get('status'),
-      pull: Number(formData.get('pull')),
-      duration: Number(formData.get('duration')),
-      tier: formData.get('tier'),
-      notes: formData.get('notes') 
-    };
-
-    if (activeRoster.some(a => a.name === updatedArtist.name)) {
-      updateCurrentLineupData(activeRoster.map(a => a.name === updatedArtist.name ? updatedArtist : a), bench);
-    } else {
-      updateCurrentLineupData(activeRoster, bench.map(a => a.name === updatedArtist.name ? updatedArtist : a));
+    const targetName = e.dataTransfer.getData("text/plain");
+    const artistObj = bench.find(a => a.name === targetName);
+    if (artistObj) {
+      const nextBench = bench.filter(a => a.name !== targetName);
+      const nextActive = [...activeRoster, artistObj];
+      handleMoveArtistLists(nextActive, nextBench);
+      setSelectedArtistName(targetName);
     }
-    setIsEditing(false);
   };
 
-  const openLineupInEditor = (id) => {
-    if (!user) {
-      setShowAuthModal(true);
-      return;
+  const handleDropToStandbyPool = (e) => {
+    e.preventDefault();
+    const targetName = e.dataTransfer.getData("text/plain");
+    const artistObj = activeRoster.find(a => a.name === targetName);
+    if (artistObj) {
+      const nextActive = activeRoster.filter(a => a.name !== targetName);
+      const nextBench = [...bench, artistObj];
+      handleMoveArtistLists(nextActive, nextBench);
+      setSelectedArtistName(targetName);
     }
-    setCurrentLineupId(id);
-    setSelectedArtistName('');
-    setCurrentView('editor');
-  };
-
-  const renderArtistCard = (artist, index, listType) => {
-    const isDragged = draggedItem?.list === listType && draggedItem?.index === index;
-    const isHovered = dragOverItem?.list === listType && dragOverItem?.index === index;
-    const isSelected = selectedArtist && selectedArtist.name === artist.name;
-
-    return (
-      <div 
-        key={artist.name}
-        data-name={artist.name}
-        draggable
-        onDragStart={(e) => handleDragStart(e, listType, index)}
-        onClick={() => { setSelectedArtistName(artist.name); setIsEditing(false); }}
-        className="artist-card"
-        style={{ 
-          opacity: isDragged ? 0.2 : 1,
-          borderBottom: isHovered && !isDragged ? '1px solid var(--border-heavy)' : '1px solid var(--border-light)',
-          background: isSelected ? 'rgba(0, 0, 0, 0.05)' : 'transparent'
-        }}
-      >
-        <div className="card-identity-block">
-          <div className="card-time-wrapper">
-            <span className="card-time">{listType === 'active' ? getDynamicTime(index) : '--:--'}</span>
-          </div>
-          
-          <div className="card-text-stack">
-            <span className="card-name" style={{ textDecoration: isSelected ? 'underline' : 'none' }}>{artist.name}</span>
-            <div className="card-sub-labels">
-              <span className="badge-pill tier-highlight">{artist.tier}</span>
-              <span className="badge-pill duration-meta">{artist.duration} MINS</span>
-            </div>
-          </div>
-        </div>
-
-        <div className="card-metrics-block">
-          <div className="card-vibe-metric" style={{ marginRight: '16px' }}>
-            <span className="card-vibe-label">Tix Pull</span>
-            <span className="card-vibe-value">{artist.pull}</span>
-          </div>
-          <div className="card-vibe-metric" style={{ marginRight: '12px' }}>
-            <span className="card-vibe-label">Cost</span>
-            <span className="card-vibe-value">${artist.fee}</span>
-          </div>
-          <button 
-            type="button" 
-            className="inline-delete-cross" 
-            onClick={(e) => handleDeleteArtist(artist.name, e)}
-          >
-            ×
-          </button>
-        </div>
-      </div>
-    );
   };
 
   return (
     <div className="app-container">
-      {/* GLOBAL BACKGROUND MODAL FOR AUTH */}
+      
+      {/* 🔐 AUTH CONNECTION MODAL */}
       {showAuthModal && (
         <div className="modal-backdrop-layer">
-          <div className="modal-container-card panel">
-            <h2 className="panel-title">{isSignUp ? "Create Account" : "Sync Workspace Profile"}</h2>
-            <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: '12px 0' }}>
-              You must log in or create an account to access or create lineup workspaces.
-            </p>
+          <div className="panel modal-container-card">
+            <div className="panel-header">
+              <h2 className="panel-title">{isSignUp ? "Register Account" : "Sign In"}</h2>
+            </div>
             <form onSubmit={handleAuthSubmit} className="negotiator-form">
-              <input required type="email" placeholder="Email Address" value={authEmail} onChange={e => setAuthEmail(e.target.value)} className="input-premium-brutalist" style={{ marginBottom: '8px' }} />
-              <input required type="password" placeholder="Password (min 6 chars)" value={authPassword} onChange={e => setAuthPassword(e.target.value)} className="input-premium-brutalist" style={{ marginBottom: '12px' }} />
-              <button type="submit" className="btn-square-brand-solid" style={{ width: '100%', padding: '12px', background: '#000', color: '#fff' }}>
-                {isSignUp ? "Register Account" : "Connect Setup"}
+              <input required type="email" placeholder="Operator Email" value={authEmail} onChange={e => setAuthEmail(e.target.value)} className="input-premium-brutalist" />
+              <input required type="password" placeholder="Password" value={authPassword} onChange={e => setAuthPassword(e.target.value)} className="input-premium-brutalist" />
+              <button type="submit" className="btn-square-brand-solid">Confirm System Verification</button>
+              <button type="button" onClick={() => setIsSignUp(!isSignUp)} style={{ background: 'none', border: 'none', textDecoration: 'underline', cursor: 'pointer', fontSize: '0.8rem' }}>
+                {isSignUp ? "Already registered? Login instead" : "Need a professional workspace? Register here"}
               </button>
-              <button type="button" onClick={() => setIsSignUp(!isSignUp)} style={{ background: 'none', border: 'none', textDecoration: 'underline', marginTop: '12px', fontSize: '0.8rem', cursor: 'pointer' }}>
-                {isSignUp ? "Have an account? Log In" : "Need an account? Register Here"}
-              </button>
-              <button type="button" onClick={() => setShowAuthModal(false)} className="btn-square-outline" style={{ width: '100%', marginTop: '8px' }}>Cancel</button>
+              <button type="button" onClick={() => setShowAuthModal(false)} className="btn-square-outline">Cancel</button>
             </form>
           </div>
         </div>
       )}
 
-      {/* DASHBOARD CENTRALIZED HUB VIEW */}
+      {/* 📊 INTERFACE VIEW 1: CLEAN DASHBOARD COMMAND CENTER */}
       {currentView === 'dashboard' && (
         <div className="dashboard-view-wrapper animate-fade">
-          <header className="header">
+          {/* HEADER SECTION */}
+          <div className="header">
             <div className="brand-wrapper">
-              <h1 className="brand-title">LineupIQ<span className="brand-dot">.</span></h1>
+              <h1 className="brand-title">LINEUPIQ<span className="brand-dot">.</span></h1>
               <span className="brand-version">v2.0 Dashboard</span>
             </div>
+            
             <div>
               {user ? (
-                <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-                  <span className="stat-label" style={{ fontSize: '0.85rem' }}>Active Operator: <strong>{user.email}</strong></span>
-                  <button onClick={handleLogout} className="btn-square-outline" style={{ borderColor: BRAND_RED, color: BRAND_RED }}>Sign Out</button>
-                </div>
+                <button 
+                  onClick={handleSignOut} 
+                  className="btn-square-outline"
+                  style={{ padding: '6px 14px', fontSize: '0.7rem', color: 'var(--moshpit-red)', borderColor: 'var(--border-heavy)' }}
+                >
+                  SIGN OUT
+                </button>
               ) : (
-                <button onClick={() => { setIsSignUp(false); setShowAuthModal(true); }} className="btn-square-brand-solid" style={{ background: BRAND_RED, color: '#fff' }}>
-                  Sign In to Create Lineups
+                <button 
+                  onClick={() => { setIsSignUp(false); setShowAuthModal(true); }} 
+                  className="btn-square-brand-solid"
+                  style={{ padding: '6px 14px', fontSize: '0.7rem' }}
+                >
+                  Sign In
                 </button>
               )}
             </div>
-          </header>
-
-          <div className="dashboard-hero-banner panel" style={{ padding: '32px', background: '#fafafa', marginBottom: '24px', textAlign: 'left' }}>
-            <h2 className="panel-title" style={{ fontSize: '2rem', marginBottom: '8px' }}>Festival Logistics Command Center</h2>
-            <p style={{ color: 'var(--text-secondary)', maxWidth: '700px', lineHeight: '1.5' }}>
-              Welcome back. Below are your localized smart layouts. Securely lock booking strategies, calculate live budget margins, and project gate analytics. 
-              {!user && <strong style={{ color: BRAND_RED }}> Sign in above to activate cloud database updates.</strong>}
-            </p>
           </div>
 
-          <div className="dashboard-grid-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-            <h3 className="panel-title" style={{ fontSize: '1.2rem' }}>Your Active Lineups ({lineups.length})</h3>
-          </div>
+          {/* MAIN CONTENT SPLIT GRID */}
+          <div className="layout-grid" style={{ marginTop: '24px' }}>
+            
+            {/* LEFT SIDE: YOUR LINEUPS GRID DIRECTORY */}
+            <div className="column-left">
+              <h2 className="panel-title" style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                YOUR LINEUPS ({lineups.length})
+              </h2>
+              
+              <div className="dashboard-grid-layout">
+                {lineups.map(item => {
+                  const totalCost = item.activeRoster?.reduce((sum, a) => sum + Number(a.fee || 0), 0) || 0;
 
-          <div className="dashboard-lineups-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '20px' }}>
-            {/* New Lineup Trigger Card */}
-            <div className="panel dashboard-card create-card" style={{ padding: '24px', display: 'flex', flexDirection: 'column', justifyContent: 'center', borderStyle: 'dashed', background: 'rgba(0,0,0,0.02)' }}>
-              <h4 className="card-name" style={{ marginBottom: '12px', display: 'block', width: '100%' }}>+ Initialize Workspace</h4>
-              <form onSubmit={handleCreateLineup} style={{ display: 'flex', flexDirection: 'column', gap: '8px', width: '100%' }}>
-                <input required type="text" placeholder="e.g., Rolling Loud Stage B" value={newLineupName} onChange={e => setNewLineupName(e.target.value)} className="input-premium-brutalist" style={{ width: '100%' }} />
-                <button type="submit" className="btn-square-brand-solid" style={{ background: '#000', color: '#fff', width: '100%', padding: '10px' }}>
-                  {user ? "Create Layout" : "Log In to Create"}
-                </button>
-              </form>
+                  return (
+                    <div 
+                      key={item.id} 
+                      onClick={() => { setCurrentLineupId(item.id); setSelectedArtistName(''); setCurrentView('editor'); }}
+                      className="panel dashboard-card"
+                      style={{ minHeight: '190px', justifyContent: 'space-between', cursor: 'pointer' }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                        <h3 className="brand-title" style={{ fontSize: '1.2rem', letterSpacing: '-0.02em' }}>{item.name}</h3>
+                        {lineups.length > 1 && (
+                          <button 
+                            onClick={(e) => { e.stopPropagation(); handleDeleteLineup(item.id, e); }} 
+                            className="directory-trash-cross"
+                          >
+                            &times;
+                          </button>
+                        )}
+                      </div>
+                      
+                      <div className="read-only-data-grid" style={{ gap: '8px', marginTop: '12px' }}>
+                        <div className="form-row-item">
+                          <span className="sidebar-field-label">Acts</span>
+                          <span className="sidebar-field-value" style={{ fontSize: '0.95rem' }}>{item.activeRoster?.length || 0}</span>
+                        </div>
+                        <div className="form-row-item">
+                          <span className="sidebar-field-label">Ticket Cap</span>
+                          <span className="sidebar-field-value text-mono" style={{ fontSize: '0.95rem' }}>{item.ticketCap?.toLocaleString() || 0}</span>
+                        </div>
+                        <div className="form-row-item">
+                          <span className="sidebar-field-label">Budget</span>
+                          <span className="sidebar-field-value text-mono" style={{ fontSize: '0.95rem', color: totalCost > (item.artistBudget || 0) ? 'var(--moshpit-red)' : 'inherit' }}>
+                            ${totalCost.toLocaleString()} / ${(item.artistBudget || 0).toLocaleString()}
+                          </span>
+                        </div>
+                      </div>
+
+                      <button className="btn-square-outline" style={{ width: '100%', padding: '8px 0', fontSize: '0.65rem', marginTop: '16px' }}>
+                        Open Lineup Layout &rarr;
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
 
-            {/* Loop Over Lineups */}
-            {lineups.map(lineup => {
-              const bookingCost = lineup.activeRoster?.reduce((sum, a) => sum + a.fee, 0) || 0;
-              const totalTalent = (lineup.activeRoster?.length || 0) + (lineup.bench?.length || 0);
-              return (
-                <div 
-                  key={lineup.id} 
-                  onClick={() => openLineupInEditor(lineup.id)}
-                  className="panel dashboard-card lineup-item-card" 
-                  style={{ padding: '24px', textAlign: 'left', cursor: 'pointer', transition: 'transform 0.2s, box-shadow 0.2s', background: '#fff' }}
-                >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
-                    <h4 className="brand-title" style={{ fontSize: '1.25rem', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '80%' }}>{lineup.name}</h4>
-                    {lineups.length > 1 && (
-                      <button onClick={(e) => handleDeleteLineup(lineup.id, e)} className="inline-delete-cross" style={{ fontSize: '1.2rem', padding: '0 4px' }}>×</button>
-                    )}
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '0.85rem' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                      <span style={{ color: 'var(--text-secondary)' }}>Active on Stage:</span>
-                      <strong className="text-mono">{lineup.activeRoster?.length || 0} Acts</strong>
+            {/* RIGHT SIDE: BRUTALIST SPACE CREATION FORM (AUTH PROTECTED) */}
+            <div className="panel" style={{ justifyContent: 'center' }}>
+              {user ? (
+                <>
+                  <h3 className="panel-title" style={{ marginBottom: '20px' }}>
+                    + INITIALIZE WORKSPACE
+                  </h3>
+                  
+                  <form onSubmit={handleCreateLineupSubmit} className="negotiator-form" style={{ textAlign: 'left' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      <label className="sidebar-field-label">Lineup Name</label>
+                      <input
+                        required
+                        type="text"
+                        value={newLineupName}
+                        onChange={(e) => setNewLineupName(e.target.value)}
+                        placeholder="e.g., Crosswire"
+                        className="input-premium-brutalist"
+                      />
                     </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                      <span style={{ color: 'var(--text-secondary)' }}>Total Roster Pool:</span>
-                      <strong>{totalTalent} Artists</strong>
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      <label className="sidebar-field-label">Ticket Cap</label>
+                      <input
+                        required
+                        type="number"
+                        value={newLineupCap}
+                        onChange={(e) => setNewLineupCap(e.target.value)}
+                        placeholder="1150"
+                        className="input-premium-brutalist"
+                      />
                     </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '8px', borderTop: '1px solid var(--border-light)', paddingTop: '8px' }}>
-                      <span style={{ color: 'var(--text-secondary)' }}>Talent Spend:</span>
-                      <strong className="text-mono" style={{ color: bookingCost > artistBudget ? BRAND_RED : 'inherit' }}>${bookingCost.toLocaleString()}</strong>
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      <label className="sidebar-field-label">Artist Budget ($)</label>
+                      <input
+                        required
+                        type="number"
+                        value={newLineupBudget}
+                        onChange={(e) => setNewLineupBudget(e.target.value)}
+                        placeholder="18000"
+                        className="input-premium-brutalist"
+                      />
                     </div>
-                  </div>
-                  <button className="btn-square-outline" style={{ width: '100%', marginTop: '16px', fontSize: '0.75rem', padding: '8px' }}>Open Builder Grid →</button>
+
+                    <button type="submit" className="btn-square-brand-solid" style={{ marginTop: '8px' }}>
+                      Create Layout
+                    </button>
+                  </form>
+                </>
+              ) : (
+                <div style={{ textAlign: 'center', padding: '20px 0' }}>
+                  <h3 className="panel-title" style={{ marginBottom: '12px', color: 'var(--text-secondary)' }}>
+                    Workspace Locked
+                  </h3>
+                  <p className="notes-content-text" style={{ fontSize: '0.9rem', marginBottom: '20px' }}>
+                    You must be signed into an account to generate customized, production-ready lineup workspace layouts.
+                  </p>
+                  <button 
+                    onClick={() => { setIsSignUp(false); setShowAuthModal(true); }} 
+                    className="btn-square-brand-solid"
+                    style={{ width: '100%' }}
+                  >
+                    Sign In to Unlock
+                  </button>
                 </div>
-              );
-            })}
+              )}
+            </div>
+
           </div>
         </div>
       )}
 
-      {/* CORE BUILDER GRID VIEW */}
+      {/* 🛠️ INTERFACE VIEW 2: MAIN DYNAMIC CREATOR GRID FRAMEWORK */}
       {currentView === 'editor' && (
-        <div className="editor-view-wrapper animate-fade">
+        <div className="editor-workspace-wrapper animate-fade" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
           <header className="header">
             <div className="brand-wrapper">
-              <button onClick={() => setCurrentView('dashboard')} className="btn-square-outline" style={{ padding: '4px 10px', fontSize: '0.75rem', marginRight: '12px' }}>
-                ← Dashboard
+              <button onClick={() => setCurrentView('dashboard')} className="btn-square-outline" style={{ padding: '6px 14px', marginRight: '8px', fontSize: '0.7rem' }}>
+                &larr; Dashboard Directory
               </button>
               <h1 className="brand-title">{activeLineup.name}</h1>
             </div>
-            
-            <div className="header-controls" style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-              <div className="lineup-selector-wrapper" style={{ display: 'flex', alignItems: 'center', gap: '8px', border: '2px solid #000', padding: '4px 12px', background: '#fff' }}>
-                <span className="stat-label" style={{ margin: 0, fontSize: '0.75rem' }}>Switch:</span>
-                <select value={currentLineupId} onChange={e => { setCurrentLineupId(e.target.value); setSelectedArtistName(''); }} style={{ border: 'none', fontWeight: '900', textTransform: 'uppercase', outline: 'none', cursor: 'pointer' }}>
+            <div className="header-controls">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span className="sidebar-field-label">View Layout:</span>
+                <select value={currentLineupId} onChange={e => { setCurrentLineupId(e.target.value); setSelectedArtistName(''); }} className="native-dropdown-premium">
                   {lineups.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
                 </select>
               </div>
-
-              <button type="button" onClick={() => setShowAddModal(true)} className="btn-square-outline" style={{ background: '#000', color: '#fff' }}>
-                + Add Artist
-              </button>
-
-              <button type="button" onClick={handleLogout} className="btn-square-outline" style={{ borderColor: BRAND_RED, color: BRAND_RED }}>
-                Sign Out
-              </button>
+              <button type="button" onClick={() => setShowAddArtistModal(true)} className="btn-square-outline" style={{ background: '#000', color: '#fff', marginLeft: '12px' }}>+ Create Profile</button>
             </div>
           </header>
 
-          {/* METRICS PANEL STRIP */}
-          <div className="continuous-metrics-strip" style={{ padding: '6px 16px' }}>
+          {/* DYNAMIC TOP METRICS STRIP */}
+          <div className="continuous-metrics-strip">
             <div className="metric-strip-cell">
-              <div className="stat-label">Ticket Cap</div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <input type="number" value={ticketCap} onChange={e => saveWorkspaceData(null, Number(e.target.value), undefined, undefined)} className="clean-inline-input text-mono" style={{ color: currentPull > ticketCap ? BRAND_RED : 'var(--text-primary)', width: '90px', fontWeight: '900', fontSize: '1.4rem', border: 'none', background: 'transparent' }} />
-                <span className="inline-progress-subtext" style={{ fontSize: '0.8rem', opacity: 0.6 }}>({currentPull.toLocaleString()} SOLD)</span>
+              <span className="stat-label">Ticket Cap Allocation</span>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
+                <input type="number" value={activeLineup.ticketCap || 1150} onChange={e => handleUpdateTopMetricStrip('ticketCap', Number(e.target.value))} className="clean-inline-input" style={{ color: currentPull > (activeLineup.ticketCap || 1150) ? 'var(--moshpit-red)' : 'inherit', fontSize: '2rem', fontWeight: 900, border: 'none', background: 'transparent', width: '140px', fontFamily: 'monospace' }} />
+                <span className="sidebar-field-label">({currentPull.toLocaleString()} SOLD)</span>
               </div>
             </div>
             <div className="metric-strip-divider" />
             <div className="metric-strip-cell">
-              <div className="stat-label">Artist Budget</div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                <span style={{ fontWeight: '900', fontSize: '1.4rem' }}>$</span>
-                <input type="number" value={artistBudget} onChange={e => saveWorkspaceData(null, undefined, Number(e.target.value), undefined)} className="clean-inline-input text-mono" style={{ color: currentSpend > artistBudget ? BRAND_RED : 'var(--text-primary)', width: '110px', fontWeight: '900', fontSize: '1.4rem', border: 'none', background: 'transparent' }} />
-                <span className="inline-progress-subtext" style={{ fontSize: '0.8rem', opacity: 0.6 }}>(${currentSpend.toLocaleString()} ALLOCATED)</span>
+              <span className="stat-label">Talent Budget Limit ($)</span>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: '4px' }}>
+                <span style={{ fontSize: '2rem', fontWeight: 900, fontFamily: 'monospace' }}>$</span>
+                <input type="number" value={activeLineup.artistBudget || 18000} onChange={e => handleUpdateTopMetricStrip('artistBudget', Number(e.target.value))} className="clean-inline-input" style={{ color: currentSpend > (activeLineup.artistBudget || 18000) ? 'var(--moshpit-red)' : 'inherit', fontSize: '2rem', fontWeight: 900, border: 'none', background: 'transparent', width: '160px', fontFamily: 'monospace' }} />
+                <span className="sidebar-field-label">(${currentSpend.toLocaleString()} COMMITTED)</span>
               </div>
             </div>
             <div className="metric-strip-divider" />
             <div className="metric-strip-cell">
-              <div className="stat-label">Show Door Time</div>
-              <input type="time" value={startTimeStr} onChange={e => saveWorkspaceData(null, undefined, undefined, e.target.value)} className="clean-inline-input text-mono" style={{ fontSize: '1.3rem', width: '130px', fontWeight: '900', border: 'none', background: 'transparent' }} />
+              <span className="stat-label">Show Open Clock</span>
+              <input type="time" value={activeLineup.startTimeStr || "15:00"} onChange={e => handleUpdateTopMetricStrip('startTimeStr', e.target.value)} className="clean-inline-input" style={{ fontSize: '1.75rem', width: '140px', border: 'none', background: 'transparent', fontWeight: '900', fontFamily: 'monospace' }} />
             </div>
           </div>
 
-          {/* DIALOG NEW ENTRY MODULE */}
-          {showAddModal && (
+          {/* ADD ARTIST MODAL */}
+          {showAddArtistModal && (
             <div className="modal-backdrop-layer">
-              <div className="modal-container-card panel">
+              <div className="panel modal-container-card">
                 <div className="panel-header">
-                  <h2 className="panel-title">New Artist Entry</h2>
+                  <h2 className="panel-title">Add Artist Profile</h2>
                 </div>
-                <form onSubmit={handleAddArtist} className="negotiator-form">
-                  <div className="form-row-item">
-                    <span className="sidebar-field-label">Artist Name</span>
-                    <input required type="text" value={newArtist.name} onChange={e => setNewArtist({...newArtist, name: e.target.value})} className="input-premium-brutalist" />
-                  </div>
-                  <div className="form-row-item">
-                    <span className="sidebar-field-label">Tier Group</span>
-                    <select value={newArtist.tier} onChange={e => setNewArtist({...newArtist, tier: e.target.value})} className="input-premium-brutalist">
-                      <option value="Headliner">Headliner</option>
-                      <option value="Mid-tier">Mid-tier</option>
-                      <option value="Low-tier">Low-tier</option>
-                    </select>
-                  </div>
-                  <div className="form-row-item">
-                    <span className="sidebar-field-label">Fee ($)</span>
-                    <input type="number" value={newArtist.fee} onChange={e => setNewArtist({...newArtist, fee: e.target.value})} className="input-premium-brutalist" />
-                  </div>
-                  <div className="form-row-item">
-                    <span className="sidebar-field-label">Projected Ticket Pull</span>
-                    <input type="number" value={newArtist.pull} onChange={e => setNewArtist({...newArtist, pull: e.target.value})} className="input-premium-brutalist" />
-                  </div>
-                  <div className="form-row-item">
-                    <span className="sidebar-field-label">Duration</span>
-                    <select value={newArtist.duration} onChange={e => setNewArtist({...newArtist, duration: e.target.value})} className="input-premium-brutalist">
-                      <option value="15">15 Min</option>
-                      <option value="30">30 Min</option>
-                      <option value="45">45 Min</option>
-                      <option value="60">60 Min</option>
-                    </select>
-                  </div>
-                  <div style={{ display: 'flex', gap: '16px', marginTop: '12px' }}>
-                    <button type="submit" className="btn-square-outline" style={{ background: '#000', color: '#fff', flex: 1 }}>Add</button>
-                    <button type="button" onClick={() => setShowAddModal(false)} className="btn-square-outline" style={{ flex: 1 }}>Cancel</button>
+                <form onSubmit={handleAddArtistSubmit} className="negotiator-form" style={{ textAlign: 'left' }}>
+                  <input required type="text" placeholder="Performance Name" value={newArtist.name} onChange={e => setNewArtist({...newArtist, name: e.target.value})} className="input-premium-brutalist" />
+                  <select value={newArtist.tier} onChange={e => setNewArtist({...newArtist, tier: e.target.value})} className="input-premium-brutalist">
+                    <option value="Headliner">Headliner</option>
+                    <option value="Mid-tier">Mid-tier</option>
+                    <option value="Low-tier">Low-tier</option>
+                  </select>
+                  <input type="number" placeholder="Guaranteed Offer Fee ($)" value={newArtist.fee} onChange={e => setNewArtist({...newArtist, fee: e.target.value})} className="input-premium-brutalist" />
+                  <input type="number" placeholder="Expected Ticket Pull Count" value={newArtist.pull} onChange={e => setNewArtist({...newArtist, pull: e.target.value})} className="input-premium-brutalist" />
+                  <select value={newArtist.duration} onChange={e => setNewArtist({...newArtist, duration: Number(e.target.value)})} className="input-premium-brutalist">
+                    <option value="15">15 Minutes Set Slot</option>
+                    <option value="30">30 Minutes Set Slot</option>
+                    <option value="45">45 Minutes Set Slot</option>
+                    <option value="60">60 Minutes Set Slot</option>
+                  </select>
+                  <div style={{ display: 'flex', gap: '12px', marginTop: '8px' }}>
+                    <button type="submit" className="btn-square-brand-solid" style={{ flex: 1 }}>Insert Profile</button>
+                    <button type="button" onClick={() => setShowAddArtistModal(false)} className="btn-square-outline" style={{ flex: 1 }}>Cancel</button>
                   </div>
                 </form>
               </div>
             </div>
           )}
 
-          {/* WORKSPACE GRID CONTAINER */}
+          {/* DYNAMIC TWO-COLUMN CONFIGURATOR BLOCKS */}
           <div className="layout-grid">
+            
+            {/* LEFT COLUMN: ACTIVE SEQUENCE & STANDBY POOLS */}
             <div className="column-left">
-              <div className="panel main-stage" onDragOver={(e) => handleDragOver(e, 'active')} onDrop={(e) => handleDrop(e, 'active')}>
+              
+              {/* STAGE TIMELINE CONTAINER DROPTARGET */}
+              <div 
+                className="panel main-stage"
+                onDragOver={handleDragOverArea}
+                onDrop={handleDropToActiveSequence}
+              >
                 <div className="panel-header">
-                    <h2 className="panel-title">Lineup ({activeRoster.length})</h2>
+                  <h2 className="panel-title">Today's Lineup ({activeRoster.length})</h2>
                 </div>
                 <div className="timeline-track-container">
-                  {activeRoster.map((artist, i) => renderArtistCard(artist, i, 'active'))}
+                  {activeRoster.length === 0 ? (
+                    <div style={{ padding: '40px 24px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.9rem', border: '2px dashed var(--border-light)' }}>
+                      Drag standby pool performance items down here to route them into the active timeline track sequence.
+                    </div>
+                  ) : (
+                    activeRoster.map((artist, idx) => (
+                      <div 
+                        key={artist.name} 
+                        draggable
+                        onDragStart={(e) => handleDragStart(e, artist.name)}
+                        onClick={() => { setSelectedArtistName(artist.name); setIsEditingArtist(false); }} 
+                        className="artist-card" 
+                        style={{ borderLeft: selectedArtistName === artist.name ? '4px solid var(--moshpit-red)' : 'none', paddingLeft: selectedArtistName === artist.name ? '12px' : '0' }}
+                      >
+                        <div className="card-identity-block">
+                          <div className="card-time-wrapper">
+                            <span className="card-time">{calculateArtistTimeBlock(idx)}</span>
+                          </div>
+                          <div className="card-text-stack">
+                            <span className="card-name">{artist.name}</span>
+                            <div className="card-sub-labels">
+                              <span className="badge-pill tier-highlight">{artist.tier}</span>
+                              <span className="badge-pill duration-meta">{artist.duration} MINS</span>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="card-metrics-block">
+                          <div className="card-vibe-metric" style={{ marginRight: '16px' }}>
+                            <span className="card-vibe-label">PROJECTED PULL</span>
+                            <span className="card-vibe-value text-mono">{artist.pull?.toLocaleString() || 0}</span>
+                          </div>
+                          <div className="card-vibe-metric">
+                            <span className="card-vibe-label">GUARANTEE</span>
+                            <span className="card-vibe-value text-mono">${artist.fee?.toLocaleString() || 0}</span>
+                          </div>
+                        </div>
+                      </div>
+                    ))
+                  )}
                 </div>
               </div>
 
-              <div className="panel bench" onDragOver={(e) => handleDragOver(e, 'bench')} onDrop={(e) => handleDrop(e, 'bench')}>
+              {/* STANDBY DISCOVERY REPOSITORIES LIST */}
+              <div 
+                className="panel bench"
+                onDragOver={handleDragOverArea}
+                onDrop={handleDropToStandbyPool}
+              >
                 <div className="panel-header">
-                    <h2 className="panel-title" style={{ color: 'var(--text-secondary)' }}>Standby Pool ({bench.length})</h2>
+                  <h2 className="panel-title">Standby Pools Available ({bench.length})</h2>
                 </div>
                 <div className="hold-pool-container">
-                  {bench.map((artist, i) => renderArtistCard(artist, i, 'bench'))}
+                  {bench.length === 0 ? (
+                    <div style={{ padding: '40px 24px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.9rem' }}>
+                      No available artist components waiting on deck. Use "+ Create Profile" to construct fresh assets.
+                    </div>
+                  ) : (
+                    bench.map(artist => (
+                      <div 
+                        key={artist.name}
+                        draggable
+                        onDragStart={(e) => handleDragStart(e, artist.name)}
+                        onClick={() => { setSelectedArtistName(artist.name); setIsEditingArtist(false); }}
+                        className="artist-card"
+                        style={{ borderLeft: selectedArtistName === artist.name ? '4px solid var(--text-secondary)' : 'none', paddingLeft: selectedArtistName === artist.name ? '12px' : '0' }}
+                      >
+                        <div className="card-identity-block">
+                          <div className="card-time-wrapper">
+                            <span className="card-time" style={{ color: 'var(--text-muted)' }}>--:--</span>
+                          </div>
+                          <div className="card-text-stack">
+                            <span className="card-name" style={{ color: 'var(--text-secondary)' }}>{artist.name}</span>
+                            <div className="card-sub-labels">
+                              <span className="badge-pill tier-highlight">{artist.tier}</span>
+                              <span className="badge-pill duration-meta">{artist.duration} MINS</span>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="card-metrics-block">
+                          <div className="card-vibe-metric" style={{ marginRight: '16px' }}>
+                            <span className="card-vibe-label">TIX DEMAND</span>
+                            <span className="card-vibe-value">{artist.pull}</span>
+                          </div>
+                          <div className="card-vibe-metric">
+                            <span className="card-vibe-label">FEE MATRIX</span>
+                            <span className="card-vibe-value">${artist.fee}</span>
+                          </div>
+                          <button type="button" className="inline-delete-cross" onClick={(e) => { e.stopPropagation(); handleRemoveArtistFromPool(artist.name, e); }}>&times;</button>
+                        </div>
+                      </div>
+                    ))
+                  )}
                 </div>
               </div>
             </div>
 
-            {/* FINANCIAL SIDE PANEL */}
-            <div className="column-right panel right-sidebar-card">
+            {/* RIGHT COLUMN: NEGOTIATION PROFILES WORKBENCH */}
+            <div className="panel right-sidebar-card">
               {selectedArtist ? (
-                <>
-                  <div className="notes-section" style={{ marginTop: '0px' }}>
-                       <h2 className="panel-title">{selectedArtist.name}</h2>
-                       <p className="notes-content-text" style={{ marginTop: '16px', textAlign: 'left' }}>{selectedArtist.notes || "No workspace log lines found for active profile focus."}</p>
+                <div style={{ display: 'flex', flexDirection: 'column', height: '100%', textAlign: 'left' }}>
+                  
+                  <div className="notes-section">
+                    <h2 className="brand-title" style={{ fontSize: '1.75rem', marginBottom: '8px' }}>{selectedArtist.name}</h2>
+                    <p className="notes-content-text">{selectedArtist.notes || "No operational context log profile records on this card layout yet."}</p>
                   </div>
 
                   <hr className="clean-rule-divider" />
 
                   <div className="financial-vector-section">
-                    <h2 className="panel-title section-title-spacing">Finances</h2>
+                    <h3 className="panel-title section-title-spacing">Contract Metrics</h3>
 
-                    {isEditing ? (
-                      <form onSubmit={handleEditSubmit} className="negotiator-form">
+                    {isEditingArtist ? (
+                      <form onSubmit={handleEditArtistSubmit} className="negotiator-form">
                         <div className="form-row-item">
-                            <span className="stat-label">Tier Group</span>
-                            <select name="tier" defaultValue={selectedArtist.tier} className="input-premium-brutalist" style={{ width: '140px' }}>
-                                <option value="Headliner">Headliner</option>
-                                <option value="Mid-tier">Mid-tier</option>
-                                <option value="Low-tier">Low-tier</option>
-                            </select>
-                        </div>
-                        <div className="form-row-item">
-                            <span className="stat-label">Duration Block</span>
-                            <select name="duration" defaultValue={selectedArtist.duration} className="input-premium-brutalist" style={{ width: '140px' }}>
-                                <option value="15">15 Minutes</option><option value="30">30 Minutes</option><option value="45">45 Minutes</option><option value="60">60 Minutes</option>
-                            </select>
+                          <span className="sidebar-field-label">Tier Group</span>
+                          <select name="tier" defaultValue={selectedArtist.tier} className="input-premium-brutalist" style={{ padding: '6px' }}>
+                            <option value="Headliner">Headliner</option>
+                            <option value="Mid-tier">Mid-tier</option>
+                            <option value="Low-tier">Low-tier</option>
+                          </select>
                         </div>
                         <div className="form-row-item">
-                            <span className="stat-label">Guaranteed Fee ($)</span>
-                            <input name="fee" type="number" defaultValue={selectedArtist.fee} className="input-premium-brutalist" style={{ width: '120px', textAlign: 'right' }} />
+                          <span className="sidebar-field-label">Set Clock Duration</span>
+                          <select name="duration" defaultValue={selectedArtist.duration} className="input-premium-brutalist" style={{ padding: '6px' }}>
+                            <option value="15">15 Min</option>
+                            <option value="30">30 Min</option>
+                            <option value="45">45 Min</option>
+                            <option value="60">60 Min</option>
+                          </select>
                         </div>
                         <div className="form-row-item">
-                            <span className="stat-label">Projected Ticket Pull</span>
-                            <input name="pull" type="number" defaultValue={selectedArtist.pull} className="input-premium-brutalist" style={{ width: '120px', textAlign: 'right' }} />
+                          <span className="sidebar-field-label">Guaranteed Fee ($)</span>
+                          <input name="fee" type="number" defaultValue={selectedArtist.fee} className="input-premium-brutalist" style={{ padding: '6px', width: '140px' }} />
                         </div>
                         <div className="form-row-item">
-                            <span className="stat-label">Status</span>
-                            <select name="status" defaultValue={selectedArtist.status} className="input-premium-brutalist" style={{ width: '180px' }}>
-                                <option value="Booked">Booked</option>
-                                <option value="Reached out">Reached out</option>
-                                <option value="Inquiry">Inquiry</option>
-                                <option value="Draft Contract">Draft Contract</option>
-                            </select>
+                          <span className="sidebar-field-label">Expected Pull</span>
+                          <input name="pull" type="number" defaultValue={selectedArtist.pull} className="input-premium-brutalist" style={{ padding: '6px', width: '140px' }} />
                         </div>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '12px' }}>
-                            <span className="stat-label">Edit Notes</span>
-                            <textarea name="notes" defaultValue={selectedArtist.notes} className="input-premium-brutalist" style={{ minHeight: '80px', resize: 'vertical', fontFamily: 'inherit', lineHeight: '1.4' }} />
+                        <div className="form-row-item">
+                          <span className="sidebar-field-label">Booking Status</span>
+                          <select name="status" defaultValue={selectedArtist.status} className="input-premium-brutalist" style={{ padding: '6px' }}>
+                            <option value="Booked">Booked</option>
+                            <option value="Reached out">Reached out</option>
+                            <option value="Inquiry">Inquiry</option>
+                            <option value="Draft Contract">Draft Contract</option>
+                          </select>
                         </div>
-                        <div style={{ display: 'flex', gap: '16px', marginTop: 'auto' }}>
-                            <button type="submit" className="btn-square-brand-solid" style={{ flex: 1 }}>Commit</button>
-                            <button type="button" onClick={() => setIsEditing(false)} className="btn-square-outline" style={{ flex: 1 }}>Cancel</button>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                          <span className="sidebar-field-label">Roster System Logs</span>
+                          <textarea name="notes" defaultValue={selectedArtist.notes} className="input-premium-brutalist" style={{ minHeight: '80px', fontFamily: 'inherit', fontSize: '0.85rem' }} />
+                        </div>
+                        <div style={{ display: 'flex', gap: '10px', marginTop: '12px' }}>
+                          <button type="submit" className="btn-square-brand-solid" style={{ flex: 1, padding: '10px', background: '#000', borderColor: '#000' }}>Commit Data</button>
+                          <button type="button" onClick={() => setIsEditingArtist(false)} className="btn-square-outline" style={{ flex: 1, padding: '10px' }}>Cancel</button>
                         </div>
                       </form>
                     ) : (
                       <div className="read-only-data-grid">
                         <div className="form-row-item">
-                          <span className="sidebar-field-label">Schedule Block:</span>
-                          <span className="sidebar-field-value">
-                            {activeRoster.findIndex(a => a.name === selectedArtist.name) !== -1 
-                              ? `${getDynamicTime(activeRoster.findIndex(a => a.name === selectedArtist.name))} (${selectedArtist.duration} MIN)` 
-                              : 'STANDBY POOL'}
+                          <span className="sidebar-field-label">Placement:</span>
+                          <span className="sidebar-field-value" style={{ fontSize: '1rem' }}>
+                            {activeRoster.findIndex(a => a.name === selectedArtist.name) !== -1 ? 'ACTIVE SET LINEUP' : 'STANDBY LOCK POOL'}
                           </span>
                         </div>
                         <div className="form-row-item">
-                          <span className="sidebar-field-label">Cost:</span>
-                          <span className="sidebar-field-value text-mono">${selectedArtist.fee.toLocaleString()} USD</span>
+                          <span className="sidebar-field-label">Cost / Pay:</span>
+                          <span className="sidebar-field-value text-mono" style={{ fontSize: '1rem' }}>${selectedArtist.fee.toLocaleString()} USD</span>
                         </div>
                         <div className="form-row-item">
                           <span className="sidebar-field-label">Status:</span>
-                          <span className="sidebar-field-value">{selectedArtist.status}</span>
+                          <span className="sidebar-field-value" style={{ fontSize: '1rem' }}>{selectedArtist.status}</span>
                         </div>
                         <div className="form-row-item breakeven-container">
-                            <span className="breakeven-label">BREAK-EVEN:</span>
-                            <span className="breakeven-value">
-                              {Math.ceil(selectedArtist.fee / TICKET_PRICE)} TICKETS
-                            </span>
+                          <span className="breakeven-label">BREAK-EVEN:</span>
+                          <span className="breakeven-value">${(Math.ceil(selectedArtist.fee / TICKET_PRICE) * TICKET_PRICE).toLocaleString()} <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>({Math.ceil(selectedArtist.fee / TICKET_PRICE)} TIX)</span></span>
                         </div>
-                        <button onClick={() => setIsEditing(true)} className="status-tag-block offer-block">Review Offer</button>
+                        
+                        <button type="button" onClick={() => setIsEditingArtist(true)} className="status-tag-block offer-block">
+                          Review Offer / Negotiate
+                        </button>
                       </div>
                     )}
+
                   </div>
-                </>
+                </div>
               ) : (
-                <div className="empty-state-message" style={{ margin: 'auto' }}>No Artists Left In Roster Parameters</div>
+                <div style={{ padding: '40px 10px', color: 'var(--text-muted)', fontSize: '0.9rem' }}>
+                  Select an artist profile to inspect contract financials.
+                </div>
               )}
             </div>
+
           </div>
         </div>
       )}

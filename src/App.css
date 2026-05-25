@@ -18,19 +18,16 @@ body {
   color: var(--text-primary);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   -webkit-font-smoothing: antialiased;
-  height: 100vh;
-  overflow: hidden;
 }
 
 .app-container {
   padding: 40px;
   max-width: 1200px;
   margin: 0 auto;
-  height: 100vh;
+  min-height: 100vh;
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
   gap: 24px;
 }
 
@@ -114,16 +111,13 @@ body {
   display: grid;
   grid-template-columns: 1.4fr 1fr;
   gap: 32px;
-  flex: 1;
-  min-height: 0;
+  align-items: start;
 }
 
 .column-left {
   display: flex;
   flex-direction: column;
   gap: 24px;
-  height: 100%;
-  min-height: 0;
 }
 
 .panel {
@@ -133,16 +127,18 @@ body {
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
-  min-height: 0;
 }
 
 .panel.main-stage {
-  flex: 1.2; 
+  min-height: 320px;
+  max-height: 480px;
   overflow-y: auto;
 }
 
 .panel.bench {
-  flex: 1; 
+  min-height: 320px;
+  max-height: 480px;
+  overflow-y: auto;
   border: 2px dashed var(--border-heavy);
   background-color: var(--bg-pool-tint);
 }
@@ -150,9 +146,7 @@ body {
 .hold-pool-container {
   display: flex;
   flex-direction: column;
-  overflow-y: auto;
   flex: 1;
-  padding-right: 4px;
 }
 
 .panel-header {
@@ -177,7 +171,6 @@ body {
   display: flex;
   flex-direction: column;
   flex: 1;
-  overflow-y: auto;
 }
 
 .artist-card {
@@ -189,9 +182,13 @@ body {
   border: none;
   border-bottom: 1px solid var(--border-light);
   box-sizing: border-box;
-  cursor: pointer;
+  cursor: grab;
   gap: 20px;
   position: relative;
+}
+
+.artist-card:active {
+  cursor: grabbing;
 }
 
 .artist-card:last-child {
@@ -302,7 +299,7 @@ body {
   color: #FFFFFF;
   width: 100%;
   padding: 16px 0;
-  margin-top: auto;
+  margin-top: 20px;
 }
 
 .panel.right-sidebar-card {
@@ -310,7 +307,7 @@ body {
   flex-direction: column;
   justify-content: flex-start;
   align-items: stretch;
-  height: 100%;
+  min-height: 520px;
 }
 
 .clean-rule-divider {
@@ -338,9 +335,7 @@ body {
 .financial-vector-section {
   display: flex;
   flex-direction: column;
-  flex: 1;
   width: 100%;
-  min-height: 0;
 }
 
 .section-title-spacing {
@@ -351,7 +346,6 @@ body {
   display: flex;
   flex-direction: column;
   gap: 16px; 
-  flex: 1;
 }
 
 .form-row-item {
@@ -379,10 +373,14 @@ body {
   font-family: monospace;
 }
 
+/* Fixed spacing to completely prevent bottom label overlap layout bugs */
 .breakeven-container {
   border-top: 1px solid var(--border-light);
   padding-top: 16px;
-  margin-top: 4px;
+  margin-top: 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
 }
 
 .breakeven-label {
@@ -419,8 +417,6 @@ body {
   display: flex;
   flex-direction: column;
   gap: 16px;
-  overflow-y: auto;
-  flex: 1;
 }
 
 .input-premium-brutalist {
@@ -483,15 +479,17 @@ body {
   color: var(--moshpit-red);
 }
 
-.hold-pool-container::-webkit-scrollbar,
-.timeline-track-container::-webkit-scrollbar {
+.panel.main-stage::-webkit-scrollbar,
+.panel.bench::-webkit-scrollbar {
   width: 6px;
 }
 
-.hold-pool-container::-webkit-scrollbar-thumb,
-.timeline-track-container::-webkit-scrollbar-thumb {
+.panel.main-stage::-webkit-scrollbar-thumb,
+.panel.bench::-webkit-scrollbar-thumb {
   background: var(--border-heavy);
-}/* Dashboard Premium Extensions */
+}
+
+/* Dashboard Grid Directory Fixes */
 .animate-fade {
   animation: fadeInHub 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
@@ -502,9 +500,15 @@ body {
 }
 
 .dashboard-view-wrapper {
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 20px;
+  width: 100%;
+  padding-bottom: 40px;
+}
+
+.dashboard-grid-layout {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 24px;
+  margin-top: 16px;
 }
 
 .dashboard-card {
@@ -521,40 +525,25 @@ body {
   border-bottom: 2px solid #000;
 }
 
-input[type="time"]::-webkit-calendar-picker-indicator {
-  cursor: pointer;
-  filter: invert(0);
-}/* Dashboard Premium Extensions */
-.animate-fade {
-  animation: fadeInHub 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-}
-
-@keyframes fadeInHub {
-  from { opacity: 0; transform: translateY(4px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-.dashboard-view-wrapper {
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 20px;
-}
-
-.dashboard-card {
-  transition: transform 0.15s ease, box-shadow 0.15s ease !important;
-}
-
-.dashboard-card:hover {
-  transform: translate(-2px, -2px);
-  box-shadow: 6px 6px 0px #000 !important;
-}
-
-.clean-inline-input:focus {
+.native-dropdown-premium {
+  border: 2px solid var(--border-heavy);
+  padding: 6px 12px;
+  font-weight: 800;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  background: #fff;
   outline: none;
-  border-bottom: 2px solid #000;
 }
 
-input[type="time"]::-webkit-calendar-picker-indicator {
+.directory-trash-cross {
+  background: transparent;
+  border: none;
+  font-size: 1.5rem;
+  font-weight: bold;
   cursor: pointer;
-  filter: invert(0);
+  color: var(--text-muted);
+}
+
+.directory-trash-cross:hover {
+  color: var(--moshpit-red);
 }
